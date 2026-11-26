@@ -15,9 +15,9 @@ All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToV
 
 ## Visual Comparison (Zero-Gradient Ridge, No LoRA, No MLP)
 
-[![MiniMax-H3 Plato's Key Ridge Comparison](showcase/H3_PlatosKey_Ridge_Comparison_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_Ridge_Comparison.mp4)
+[![MiniMax-H3 Plato's Key Ridge Comparison](showcase/H3_PlatosKey_X_Demo_Final_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_X_Demo_Final.mp4)
 
-- [Watch / download side-by-side comparison video (`showcase/H3_PlatosKey_Ridge_Comparison.mp4`)](showcase/H3_PlatosKey_Ridge_Comparison.mp4)
+- [Watch / download side-by-side comparison video (`showcase/H3_PlatosKey_X_Demo_Final.mp4`)](showcase/H3_PlatosKey_X_Demo_Final.mp4)
 
 ## Step-by-Step Setup (Where to Place Files)
 
