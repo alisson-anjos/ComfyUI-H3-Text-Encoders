@@ -358,11 +358,14 @@ class PlatosKeyPatchCLIP:
 
         orig_tok = getattr(patched, "tokenize", None)
         if orig_tok is not None:
+            keep_bos = (key.metadata.get("add_special_tokens", "false").lower() == "true")
             def _wrapped_tokenize(*args, **kwargs):
-                # 2. Match MiniMax-H3 / calibration prompt format: no chat template (`llama_template="{}"`)
-                #    and disable LTX-style 1024-token left-padding (`min_length = 1`) on Gemma 4 tokenizers!
+                # 2. Match MiniMax-H3 / calibration prompt format:
+                #    - no chat template (`llama_template="{}"`)
+                #    - disable LTX-style 1024-token left-padding (`min_length = 1`) on Gemma 4
+                #    - disable auto-prepended `<bos>` (`start_token = None`) unless key was calibrated with special tokens
                 tok_obj = getattr(patched, "tokenizer", None)
-                saved_min_len = []
+                saved_tok_attrs = []
                 if tok_obj is not None:
                     clip_key = getattr(tok_obj, "clip", None)
                     candidates = [tok_obj]
@@ -370,8 +373,11 @@ class PlatosKeyPatchCLIP:
                         candidates.append(getattr(tok_obj, clip_key))
                     for c in candidates:
                         if hasattr(c, "min_length") and isinstance(c.min_length, int) and c.min_length > 1:
-                            saved_min_len.append((c, c.min_length))
+                            saved_tok_attrs.append((c, "min_length", c.min_length))
                             c.min_length = 1
+                        if not keep_bos and hasattr(c, "start_token") and c.start_token is not None:
+                            saved_tok_attrs.append((c, "start_token", c.start_token))
+                            c.start_token = None
                 try:
                     kw_no_tpl = dict(kwargs)
                     kw_no_tpl.setdefault("llama_template", "{}")
@@ -391,8 +397,8 @@ class PlatosKeyPatchCLIP:
                                 continue
                         return orig_tok(*args[:1])
                 finally:
-                    for c, old_ml in saved_min_len:
-                        c.min_length = old_ml
+                    for c, attr_name, old_val in saved_tok_attrs:
+                        setattr(c, attr_name, old_val)
             patched.tokenize = _wrapped_tokenize
 
         def _ensure_h3_meta(cond_list):
