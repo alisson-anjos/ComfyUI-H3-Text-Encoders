@@ -236,16 +236,35 @@ class PlatosKeyPatchCLIP:
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "clip": ("CLIP",),
-                "key_file": (discover_key_files(),),
+                "clip": ("CLIP", {"tooltip": "Donor text encoder loaded with ComfyUI's native CLIPLoader (e.g. Qwen 3.5, Qwen 3.8, Gemma 4)."}),
+                "key_file": (discover_key_files(), {"tooltip": "Calibrated Plato's Key .safetensors file from ComfyUI/models/clip_projections/."}),
                 "strength": (
                     "FLOAT",
-                    {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05},
+                    {
+                        "default": 1.0,
+                        "min": 0.0,
+                        "max": 2.0,
+                        "step": 0.05,
+                        "tooltip": "Projection strength (1.0 = exact calibrated map; <1.0 softer prompt conditioning; >1.0 stronger prompt adherence).",
+                    },
                 ),
             },
             "optional": {
-                "key_path_override": ("STRING", {"default": "", "multiline": False}),
-                "apply_to_pooled": ("BOOLEAN", {"default": False}),
+                "key_path_override": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional absolute path to a .safetensors key outside ComfyUI/models/clip_projections/. Leave empty to use key_file.",
+                    },
+                ),
+                "apply_to_pooled": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Also project pooled_output (for SDXL/Flux-style models). Keep False for MiniMax-H3.",
+                    },
+                ),
             },
         }
 

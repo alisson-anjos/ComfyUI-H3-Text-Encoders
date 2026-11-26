@@ -24,8 +24,10 @@ Restart ComfyUI.
 1. Load any supported donor text encoder (from [Comfy-Org/Qwen3.5](https://huggingface.co/Comfy-Org/Qwen3.5), [Comfy-Org/Qwen3.8-27B](https://huggingface.co/Comfy-Org/Qwen3.8-27B), [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4), etc.) using ComfyUI's native **`Load CLIP`** (`CLIPLoader`).
 2. Connect its `CLIP` output to **`Plato's Key Patch CLIP (H3 Plug & Play)`** (`PlatosKeyPatchCLIP`, under `conditioning/platos_key`):
    - **`key_file`**: select any calibrated `.safetensors` key placed in `ComfyUI/models/clip_projections/` (or download from [`Alissonerdx/TE-PK-Minimax-H3`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3))
-   - **`strength`**: `1.0` *(default full projection)*
-3. Connect the patched `CLIP` output directly to ComfyUI's official **`MiniMax H3 Reference to Video`** (`MiniMaxH3ReferenceToVideo`) node — **no LoRA and no extra projection node required**.
+   - **`strength`**: `1.0` *(default exact calibrated map; `< 1.0` softens prompt conditioning, `> 1.0` boosts prompt adherence)*
+   - **`key_path_override`** *(optional)*: absolute path to a `.safetensors` key stored outside `ComfyUI/models/clip_projections/` — leave empty when using `key_file`
+   - **`apply_to_pooled`** *(optional)*: also project `pooled_output` (used by SDXL/Flux-style models; keep **`False`** for MiniMax-H3)
+3. Connect the patched `CLIP` output directly to ComfyUI's official **`MiniMax H3 Reference to Video`** (`MiniMaxH3ReferenceToVideo`) or **`MiniMax H3 Image to Video`** (`MiniMaxH3ImageToVideo`) node — **no LoRA and no extra projection node required**.
 
 ### Additional Nodes Included
 
