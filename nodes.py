@@ -23,8 +23,8 @@ def _get_search_dirs() -> List[Path]:
     dirs: List[Path] = []
     if folder_paths is not None:
         try:
-            models_dir = Path(folder_paths.models_dir) / "platos_key"
-            dirs.append(models_dir)
+            dirs.append(Path(folder_paths.models_dir) / "clip_projections")
+            dirs.append(Path(folder_paths.models_dir) / "platos_key")
         except Exception:
             pass
     dirs.append(LOCAL_KEYS_DIR)
@@ -67,7 +67,7 @@ def resolve_key_path(key_file: str, key_path_override: str = "") -> Path:
     searched = ", ".join(str(d) for d in _get_search_dirs())
     raise FileNotFoundError(
         f"Plato's Key '{key_file}' not found. Searched: [{searched}]. "
-        "Place your .safetensors key in ComfyUI/models/platos_key/ or set key_path_override."
+        "Place your .safetensors key in ComfyUI/models/clip_projections/ or set key_path_override."
     )
 
 
