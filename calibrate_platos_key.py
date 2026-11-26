@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
-from platos_key_core import evaluate_platos_key, fit_platos_key, save_platos_key
+from platos_key_core import evaluate_platos_key, fit_platos_key, fit_ridge_key, save_platos_key
 
 DEFAULT_CORPUS = Path(__file__).resolve().parent / "prompts_corpus.json"
 WORD_SPAN_RE = re.compile(r"\S+")
@@ -339,6 +339,18 @@ def build_argparser() -> argparse.ArgumentParser:
         default=True,
         help="Load donor and target sequentially to minimize peak VRAM (default: True)",
     )
+    parser.add_argument(
+        "--method",
+        choices=["ridge", "procrustes"],
+        default="ridge",
+        help="Closed-form solver: 'ridge' (recommended for MiniMax-H3) or 'procrustes' (default: ridge)",
+    )
+    parser.add_argument(
+        "--ridge-lambda",
+        type=float,
+        default=None,
+        help="Explicit L2 regularization lambda for Ridge (omit to auto-select best on validation split)",
+    )
     parser.add_argument("--keep-special-tokens", action="store_true", help="Include BOS/EOS tokens in alignment")
     parser.add_argument("--trust-remote-code", action="store_true", help="Pass trust_remote_code=True to transformers")
     return parser
@@ -397,19 +409,35 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         f"val: {tuple(x_val.shape)} -> {tuple(y_val.shape)}"
     )
 
-    key = fit_platos_key(
-        x_train,
-        y_train,
-        metadata={
-            "donor_model": args.donor,
-            "target_model": args.target,
-            "donor_layer": str(args.donor_layer),
-            "target_layer": str(args.target_layer),
-            "align_mode": align_mode,
-            "corpus_prompts": str(len(prompts)),
-        },
-        save_dtype=save_dtype,
-    )
+    base_meta = {
+        "donor_model": args.donor,
+        "target_model": args.target,
+        "donor_layer": str(args.donor_layer),
+        "target_layer": str(args.target_layer),
+        "align_mode": align_mode,
+        "corpus_prompts": str(len(prompts)),
+        "method": args.method,
+        "add_special_tokens": "true" if args.keep_special_tokens else "false",
+    }
+
+    if args.method == "ridge":
+        lambdas = [args.ridge_lambda] if args.ridge_lambda is not None else [1.0, 10.0, 100.0, 1000.0, 10000.0]
+        best_key = None
+        best_val = None
+        for lam in lambdas:
+            cand = fit_ridge_key(x_train, y_train, lam=lam, metadata=dict(base_meta), save_dtype=save_dtype)
+            vm = evaluate_platos_key(x_val, y_val, cand)
+            print(f"[Plato's Key] Ridge lam={lam:g} -> val_cos={vm['cosine_mean']:.5f} val_R2={vm['r2']:.5f}")
+            if best_val is None or vm["r2"] > best_val["r2"]:
+                best_key, best_val = cand, vm
+        key = best_key
+    else:
+        key = fit_platos_key(
+            x_train,
+            y_train,
+            metadata=base_meta,
+            save_dtype=save_dtype,
+        )
 
     train_metrics = evaluate_platos_key(x_train, y_train, key)
     val_metrics = evaluate_platos_key(x_val, y_val, key)
