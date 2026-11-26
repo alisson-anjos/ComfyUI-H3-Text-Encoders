@@ -290,6 +290,24 @@ class PlatosKeyPatchCLIP:
 
         in_proj = [False]
 
+        orig_tok = getattr(patched, "tokenize", None)
+        if orig_tok is not None:
+            def _wrapped_tokenize(*args, **kwargs):
+                try:
+                    return orig_tok(*args, **kwargs)
+                except TypeError:
+                    # Non-MiniMax CLIPs (e.g. Gemma 4, Mistral, T5, generic Qwen) don't accept
+                    # MiniMax-specific kwargs like `minimax_ref_items` or `images`.
+                    clean_kw = {
+                        k: v for k, v in kwargs.items()
+                        if k not in ("minimax_ref_items", "images", "return_word_ids")
+                    }
+                    try:
+                        return orig_tok(*args, **clean_kw)
+                    except TypeError:
+                        return orig_tok(*args[:1])
+            patched.tokenize = _wrapped_tokenize
+
         orig_sched = getattr(patched, "encode_from_tokens_scheduled", None)
         if orig_sched is not None:
             def _wrapped_sched(*args, **kwargs):
