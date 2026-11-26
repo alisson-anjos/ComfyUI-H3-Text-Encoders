@@ -290,16 +290,16 @@ class PlatosKeyPatchCLIP:
 
         orig_sched = getattr(patched, "encode_from_tokens_scheduled", None)
         if orig_sched is not None:
-            def _wrapped_sched(tokens, uncond_eval=None, add_dict={}, show_pbar=True):
-                cond = orig_sched(tokens, uncond_eval=uncond_eval, add_dict=add_dict, show_pbar=show_pbar)
+            def _wrapped_sched(*args, **kwargs):
+                cond = orig_sched(*args, **kwargs)
                 return _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
             patched.encode_from_tokens_scheduled = _wrapped_sched
 
         orig_enc = getattr(patched, "encode_from_tokens", None)
         if orig_enc is not None:
-            def _wrapped_enc(tokens, return_pooled=False, return_dict=False):
-                out = orig_enc(tokens, return_pooled=return_pooled, return_dict=return_dict)
-                if return_dict and isinstance(out, dict) and "cond" in out:
+            def _wrapped_enc(*args, **kwargs):
+                out = orig_enc(*args, **kwargs)
+                if isinstance(out, dict) and "cond" in out:
                     out = dict(out)
                     out["cond"] = apply_platos_key(out["cond"], key, strength=s_val)
                     if p_val and isinstance(out.get("pooled_output"), torch.Tensor):
