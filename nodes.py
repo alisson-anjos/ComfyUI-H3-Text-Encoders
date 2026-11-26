@@ -494,14 +494,203 @@ class PlatosKeyPatchCLIP:
         return (patched,)
 
 
+class _HFPlatosKeyCLIP:
+    """ComfyUI CLIP-compatible wrapper around any HuggingFace `transformers` text encoder + Plato's Key.
+
+    Allows running ANY HuggingFace LLM/VLM/embedding model (even ones without a native ComfyUI CLIPLoader)
+    directly inside MiniMax-H3 workflows, with automatic single-layer or multi-layer (`donor_layers`)
+    projection and optional CPU offload after encoding to keep 100% of VRAM free for the H3 DiT.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        key: PlatosKey,
+        strength: float = 1.0,
+        dtype_str: str = "bf16",
+        offload_to_cpu: bool = True,
+        trust_remote_code: bool = True,
+    ):
+        self.model_id = model_id
+        self.key = key
+        self.strength = float(strength)
+        self.dtype_str = dtype_str
+        self.offload_to_cpu = bool(offload_to_cpu)
+        self.trust_remote_code = bool(trust_remote_code)
+        self._tok = None
+        self._model = None
+        self._backbone = None
+
+    def clone(self):
+        c = _HFPlatosKeyCLIP(
+            model_id=self.model_id,
+            key=self.key,
+            strength=self.strength,
+            dtype_str=self.dtype_str,
+            offload_to_cpu=self.offload_to_cpu,
+            trust_remote_code=self.trust_remote_code,
+        )
+        c._tok = self._tok
+        c._model = self._model
+        c._backbone = self._backbone
+        return c
+
+    def _ensure_loaded(self):
+        if self._backbone is not None:
+            return
+        from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
+        dtype_map = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
+        tdtype = dtype_map.get(self.dtype_str, torch.bfloat16)
+        self._tok = AutoTokenizer.from_pretrained(self.model_id, use_fast=True, trust_remote_code=self.trust_remote_code)
+        if self._tok.pad_token_id is None:
+            self._tok.pad_token = self._tok.eos_token or self._tok.unk_token
+        try:
+            m = AutoModel.from_pretrained(self.model_id, dtype=tdtype, trust_remote_code=self.trust_remote_code, low_cpu_mem_usage=True)
+        except Exception:
+            m = AutoModelForCausalLM.from_pretrained(self.model_id, dtype=tdtype, trust_remote_code=self.trust_remote_code, low_cpu_mem_usage=True)
+        m.eval()
+        m.requires_grad_(False)
+        for attr in ("visual", "vision_tower", "audio_tower", "multi_modal_projector", "lm_head"):
+            if hasattr(m, "model") and hasattr(m.model, attr):
+                delattr(m.model, attr)
+            if hasattr(m, attr):
+                delattr(m, attr)
+        if hasattr(m, "model") and hasattr(m.model, "language_model"):
+            bb = m.model.language_model
+        elif hasattr(m, "language_model"):
+            bb = m.language_model
+        elif hasattr(m, "model"):
+            bb = m.model
+        else:
+            bb = m
+        self._model = m
+        self._backbone = bb
+
+    def tokenize(self, text: str, **kwargs):
+        return {"hf_text": str(text)}
+
+    @torch.no_grad()
+    def encode_from_tokens_scheduled(self, tokens, uncond_eval=None, **kwargs):
+        text = tokens.get("hf_text", "") if isinstance(tokens, dict) else str(tokens)
+        self._ensure_loaded()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._backbone.to(device)
+        try:
+            enc = self._tok(
+                [text],
+                return_tensors="pt",
+                truncation=True,
+                max_length=512,
+                return_special_tokens_mask=True,
+            )
+            spec = enc.pop("special_tokens_mask")[0].bool()
+            ids = enc["input_ids"].to(device)
+            mask = enc["attention_mask"].to(device)
+            out = self._backbone(input_ids=ids, attention_mask=mask, output_hidden_states=True, use_cache=False)
+            all_hs = out.hidden_states
+            valid = mask[0].bool().cpu() & (~spec)
+            if not valid.any():
+                valid = mask[0].bool().cpu()
+
+            layers_meta = self.key.metadata.get("donor_layers")
+            if layers_meta:
+                import json as _json
+                l_idx = [int(v) for v in _json.loads(layers_meta)]
+                h = torch.cat([all_hs[idx][0].float().cpu()[valid] for idx in l_idx], dim=-1).unsqueeze(0)
+            else:
+                tap = int(self.key.metadata.get("donor_layer") or self.key.metadata.get("tap_layer") or -1)
+                h = all_hs[tap][0].float().cpu()[valid].unsqueeze(0)
+
+            mapped = apply_platos_key(h, self.key, strength=self.strength)
+            meta = {
+                "pooled_output": torch.zeros((1, self.key.d_target), dtype=mapped.dtype),
+                "minimax_token_tags": torch.ones((1, mapped.shape[1]), dtype=torch.long),
+            }
+            return [[mapped, meta]]
+        finally:
+            if self.offload_to_cpu and device.type == "cuda":
+                self._backbone.to("cpu")
+                torch.cuda.empty_cache()
+
+    def encode_from_tokens(self, tokens, return_pooled=False, return_dict=False, **kwargs):
+        cond_list = self.encode_from_tokens_scheduled(tokens)
+        c, meta = cond_list[0]
+        if return_dict:
+            out = dict(meta)
+            out["cond"] = c
+            return out
+        if return_pooled:
+            return c, meta["pooled_output"]
+        return c
+
+
+class PlatosKeyHFTextEncoderLoader:
+    """Load ANY HuggingFace text encoder via `transformers` and wrap it with a calibrated Plato's Key."""
+
+    @classmethod
+    def INPUT_TYPES(cls) -> Dict[str, Any]:
+        return {
+            "required": {
+                "model_id": (
+                    "STRING",
+                    {
+                        "default": "google/gemma-4-E4B-it",
+                        "multiline": False,
+                        "tooltip": "HuggingFace repo ID or local folder path (works for ANY transformers LLM/VLM/embedding model).",
+                    },
+                ),
+                "key_file": (discover_key_files(),),
+                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "dtype": (["bf16", "fp16", "fp32"], {"default": "bf16"}),
+                "offload_to_cpu": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": "Offload text encoder to CPU right after encoding so 100% of VRAM is free for MiniMax-H3 DiT.",
+                    },
+                ),
+            },
+            "optional": {
+                "key_path_override": ("STRING", {"default": "", "multiline": False}),
+            },
+        }
+
+    RETURN_TYPES = ("CLIP",)
+    RETURN_NAMES = ("clip",)
+    FUNCTION = "load"
+    CATEGORY = "conditioning/platos_key"
+
+    def load(
+        self,
+        model_id: str,
+        key_file: str,
+        strength: float = 1.0,
+        dtype: str = "bf16",
+        offload_to_cpu: bool = True,
+        key_path_override: str = "",
+    ) -> Tuple[Any]:
+        key_path = resolve_key_path(key_file, key_path_override)
+        key = get_cached_key(key_path)
+        clip = _HFPlatosKeyCLIP(
+            model_id=model_id.strip(),
+            key=key,
+            strength=float(strength),
+            dtype_str=dtype,
+            offload_to_cpu=bool(offload_to_cpu),
+        )
+        return (clip,)
+
+
 NODE_CLASS_MAPPINGS = {
     "PlatosKeyApply": PlatosKeyApply,
     "PlatosKeyCLIPTextEncode": PlatosKeyCLIPTextEncode,
     "PlatosKeyPatchCLIP": PlatosKeyPatchCLIP,
+    "PlatosKeyHFTextEncoderLoader": PlatosKeyHFTextEncoderLoader,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PlatosKeyApply": "Plato's Key Apply (Procrustes)",
     "PlatosKeyCLIPTextEncode": "Plato's Key CLIP Text Encode",
     "PlatosKeyPatchCLIP": "Plato's Key Patch CLIP (H3 Plug & Play)",
+    "PlatosKeyHFTextEncoderLoader": "Plato's Key Load Any HF Text Encoder (H3)",
 }
