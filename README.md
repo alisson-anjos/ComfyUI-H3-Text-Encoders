@@ -1,24 +1,50 @@
 # ComfyUI-H3-Text-Encoders
 
 > [!IMPORTANT]
-> **Current `v2 Ridge` keys are already working and ready to test today** (Qwen 3.5 `0.8B–9B` up to `96.26%` cosine / `99.49%` R², Gemma 4 `E2B–31B` up to `92.54%` cosine).
-> - **Active improvement (`v3` in progress):** we are recalibrating all keys on our **full ~20k-prompt dataset** directly against MiniMax-H3's native **`Qwen3-VL-32B`** teacher to push fine-grained prompt adherence even higher.
-> - **Recommendation:** always prefer the **`Ridge`** keys (`*_pk_ridge_*.safetensors`) and keep `ComfyUI-H3-Text-Encoders` updated.
+> **NEW (`v0.1.6`) — `v4 Multi-Layer (4-Layer Concat) Ridge` for Google Gemma 4 is LIVE (`E4B: 0.9410 R²`, `E2B: 0.9326 R²`, `12B: 0.8375 R²`)**, alongside **`v3 Direct-32B Streaming Ridge`** for all **Qwen 3.5 & Qwen 3.8 27B** encoders (`0.985–0.992 R²`) and the new **`Plato's Key Load Any HF Text Encoder (H3)`** node!
+> - **Calibrating right now:** `Gemma-4-31B` (4-Layer), `Gemma-4-26B-A4B` (4-Layer MoE), and `Inkling-2-Mini` (4-Layer looped MoE).
+> - **Recommendation:** use **`*_pk_ridge_*.safetensors`** for Qwen 3.5 / 3.8 and **`*_pk_ridge_4layer_*.safetensors`** for Gemma 4 & cross-family models.
 
-Use any modern ComfyUI-native text encoder (**Qwen 3.5 2B / 4B / 9B**, **Qwen 3.8 27B**, **Gemma 4**, etc.) as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP projection weights**.
+Use modern ComfyUI-native text encoders (**Qwen 3.5 0.8B / 2B / 4B / 9B**, **Qwen 3.8 27B**, **Google Gemma 4**) — or **any HuggingFace LLM/VLM** (like **Inkling-2-Mini** or **Gemma 4 26B-A4B**) — as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP weights**.
 
-Powered by **Plato's Key** (*closed-form Orthogonal Procrustes rotation + global scale via SVD*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a tiny `.safetensors` key (~15–40 MB) that maps a donor encoder's hidden states directly into MiniMax-H3's native **5120-dim `Qwen3-VL-32B`** geometric space:
+Powered by **Plato's Key** (*closed-form Ridge & Multi-Layer Ridge*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a compact `.safetensors` key (~20–157 MB) that projects a donor encoder's hidden states directly into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B`** geometric space:
 
-$$\hat{Y} = \text{scale} \cdot (X - \mu_{\text{donor}}) R + \mu_{\text{target}}$$
+$$\hat{Y} = (X - \mu_{\text{donor}}) W + \mu_{\text{target}}, \qquad W = (X_c^\top X_c + \lambda I)^{-1} X_c^\top Y_c$$
 
 All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToVideo`, `SamplerCustomAdvanced`, `VAEDecode`) work out of the box.
 
+## Key Engineering Breakthroughs
+
+1. **Closed-Form Ridge >> Orthogonal Procrustes on MiniMax-H3:** MiniMax-H3's native 5,120-dim `Qwen3-VL-32B` space (layer 50, unnormalized) has strong anisotropic outlier channels. Rigid isotropic Procrustes stops at `R² ≈ 0.04`, whereas closed-form Ridge scales each channel independently, reaching **`R² = 0.990–0.992`** (**147× lower MSE**) on Qwen 3.5 & Qwen 3.8.
+2. **Multi-Layer Plato's Key (`4-Layer Concat`) Unlocks Cross-Family Gemma 4:** Single-layer linear maps across different architectures/tokenizers (Google Gemma 4 → Qwen3-VL-32B) hit a ceiling (~55–78% R²). Concatenating **4 evenly-spaced transformer layers** (e.g., `[-2, -10, -18, -26]` → `10,240 → 5,120`) before a single closed-form Ridge projection jumps Gemma 4 by **+15 to +29 R² points** (`E4B: 0.9410 R²`, `E2B: 0.9326 R²`, `12B: 0.8375 R²`) with **zero gradient training and zero extra forward passes** in ComfyUI!
+3. **Exact ComfyUI CLIP Parity (`v0.1.5+`):** Automatically enforces `options_default` tuple override, layer & `RMSNorm` parity, `llama_template="{}"`, LTXV `min_length=1` padding strip, Gemma 4 `<bos>` attention-sink retention (stripping token 0 post-encode), and `minimax_token_tags`.
+4. **Universal HuggingFace Loader (`v0.1.6`):** **`Plato's Key Load Any HF Text Encoder (H3)`** loads *any* `transformers` LLM/VLM (even models without a native ComfyUI `CLIPLoader`, like `thinkingmachines/Inkling-2-Mini`) with automatic single- or multi-layer projection and automatic CPU offload to keep 100% of VRAM free for the H3 DiT.
+
 ## Visual Comparison (Zero-Gradient Ridge, No LoRA, No MLP)
 
-[![MiniMax-H3 Plato's Key Ridge Comparison](showcase/H3_PlatosKey_X_Demo_Final_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_X_Demo_Final.mp4)
+[![MiniMax-H3 Plato's Key Explainer & 3-Way Comparison](showcase/H3_PlatosKey_X_Demo_Final_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_X_Demo_Final.mp4)
 
-- [Watch / download side-by-side comparison video (`showcase/H3_PlatosKey_X_Demo_Final.mp4`)](showcase/H3_PlatosKey_X_Demo_Final.mp4)
+- [Watch / download full explainer + comparison video (`showcase/H3_PlatosKey_X_Demo_Final.mp4`)](showcase/H3_PlatosKey_X_Demo_Final.mp4)
 
+### 4-Way Ref2VA — Native 32B vs Qwen 3.5 9B/2B vs Google Gemma 4 E4B (4-Layer, `strength = 1.0`)
+
+![4-Way Comparison including Google Gemma 4 E4B 4-Layer](showcase/H3_PlatosKey_4Way_With_Gemma4_4Layer.jpg)
+
+## Pre-Calibrated Weights (20,029 Prompts Direct to Native 32B Layer 50)
+
+Download ready-to-use `.safetensors` keys from [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3):
+
+| Encoder | Dims | Method | **Cosine** | **R²** | Key File |
+|---|---:|:---:|---:|---:|---|
+| **Qwen3.5-9B** | `4096→5120` | Ridge (`-1`) | **0.9305** | **0.9905** | `qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors` |
+| **Qwen3.5-2B** | `2048→5120` | Ridge (`-1`) | **0.9257** | **0.9916** | `qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors` |
+| **Qwen3.5-4B** | `2560→5120` | Ridge (`-1`) | **0.9182** | **0.9902** | `qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors` |
+| **Qwen3.5-0.8B** | `1024→5120` | Ridge (`-1`) | **0.9111** | **0.9901** | `qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors` |
+| **Qwen3.8-27B** | `5120→5120` | Ridge (`-1`) | **0.8994** | **0.9846** | `qwen3.8/minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors` |
+| **Gemma-4-E4B (4L)** | `10240→5120` | **4L Ridge** | **0.7978** | **0.9410** | `gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors` |
+| **Gemma-4-E2B (4L)** | `6144→5120` | **4L Ridge** | **0.7410** | **0.9326** | `gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors` |
+| **Gemma-4-12B (4L)** | `15360→5120` | **4L Ridge** | **0.5968** | **0.8375** | `gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors` |
+| **Gemma-4-31B** | `5376→5120` | Ridge (`-2` / 4L soon) | **0.7583** | **0.8579** | `gemma4/minimax_h3_32b_pk_ridge_gemma4_31b_layer-2.safetensors` |
 
 ## Step-by-Step Setup (Where to Place Files)
 
@@ -30,112 +56,57 @@ cd ComfyUI-H3-Text-Encoders
 pip install -r requirements.txt
 ```
 
-2. **Download a Text Encoder** (pick any supported model) and place it in **`ComfyUI/models/text_encoders/`**:
-   - **Qwen 3.5 (`0.8B / 2B / 4B / 9B`)**: [Comfy-Org/Qwen3.5](https://huggingface.co/Comfy-Org/Qwen3.5) → `ComfyUI/models/text_encoders/`
-   - **Gemma 4 (`E2B / E4B / 12B / 31B`)**: [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4) → `ComfyUI/models/text_encoders/`
-   - **Qwen 3.8 (`27B`)**: [Comfy-Org/Qwen3.8-27B](https://huggingface.co/Comfy-Org/Qwen3.8-27B) → `ComfyUI/models/text_encoders/`
+2. **Download a Text Encoder** and place it in **`ComfyUI/models/text_encoders/`**:
+   - **Qwen 3.5 (`0.8B / 2B / 4B / 9B`)**: [Comfy-Org/Qwen3.5](https://huggingface.co/Comfy-Org/Qwen3.5)
+   - **Gemma 4 (`E2B / E4B / 12B / 31B`)**: [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4)
+   - **Qwen 3.8 (`27B`)**: [Comfy-Org/Qwen3.8-27B](https://huggingface.co/Comfy-Org/Qwen3.8-27B)
+   - *(Or skip manual downloads for any HuggingFace model using **`Plato's Key Load Any HF Text Encoder (H3)`**!)*
 
-3. **Download the matching Plato's Key `.safetensors`** (prefer **`*_pk_ridge_*.safetensors`**) from [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) and place it in **`ComfyUI/models/clip_projections/`**:
-   ```text
-   ComfyUI/
-   └── models/
-       ├── text_encoders/
-       │   └── qwen3.5_9b_int8_convrot.safetensors        # (or 2B / 4B / Gemma 4)
-       └── clip_projections/
-           └── minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors
-   ```
-
-4. **Restart ComfyUI** and wire the workflow:
-   - **`Load CLIP`** (`CLIPLoader`, type `minimax` for Qwen 3.5) → **`Plato's Key Patch CLIP (H3 Plug & Play)`** (`key_file`: select the matching `.safetensors`, `strength`: `1.00`, `apply_to_pooled`: `False`) → **`MiniMax H3 Reference to Video`** or **`MiniMax H3 Image to Video`** — **no LoRA and no extra projection node required**.
-
-### Additional Nodes Included
-
-- **`PlatosKeyApply`**: Applies a `.safetensors` Plato's Key directly to an existing `CONDITIONING` tensor.
-- **`PlatosKeyCLIPTextEncode`**: One-step text encode + Plato's Key projection returning `CONDITIONING`.
-
-### Procrustes vs Ridge vs Norm — Which Key Should I Use?
-
-All adapters are solved in **closed form (zero gradient descent, zero LoRA)**:
-
-- **`Ridge` (`*_pk_ridge_*.safetensors`) — Recommended for MiniMax-H3**: Solves closed-form Ridge regression $(X^\top X + \lambda I)^{-1} X^\top Y$. Unlike isotropic Procrustes, Ridge scales each of the 5,120 target channels independently, accurately matching MiniMax-H3's anisotropic outlier channels (highest **Cosine** and **R²**). Tip: setting `strength = 1.05–1.10` gives the variance-matched (`ridge_norm`) effect directly at inference time.
-- **`Procrustes` (`*_pk_*.safetensors`)**: Pure Stanford *Plato's Key* — a strict orthogonal rotation ($R^\top R = I$) plus a single global scale. Preserves exact donor angles, with lower R² on outlier channels.
-- **`_norm` variants**: Rescale the projected vector to match `1.00×` target norm/variance, compensating for slight Ridge shrinkage (`~0.92×`).
-- **What do `(-1)` and `(-2)` mean in the table?**
-  - **`-1` (last layer)**: final transformer hidden state (post-`RMSNorm`), optimal for Qwen 3.5 (`94.9%–96.3%` cosine).
-  - **`-2` (penultimate layer)**: second-to-last hidden state (before final LM head norm), optimal for cross-family Gemma 4 (`90.45%` vs `87.8%` at `-1`).
-  - **Automatic in ComfyUI**: every `.safetensors` key stores its calibrated layer in its header, and `PlatosKeyPatchCLIP` configures the CLIP layer & norm automatically — you do **not** need `CLIPSetLastLayer`.
-
-## Calibration & Conversion Guide (Create Your Own Key — Zero Gradients)
-
-You can convert **any HuggingFace / ComfyUI-native text encoder** into a MiniMax-H3 adapter in minutes using [`calibrate_platos_key.py`](calibrate_platos_key.py) and [`platos_key_core.py`](platos_key_core.py) — no gradient training, no LoRA, and no backpropagation required.
-
-### 1. Install Calibration Dependencies
-
-```bash
-pip install -r requirements.txt
+3. **Download the matching `.safetensors` key** from [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) and place it in **`ComfyUI/models/clip_projections/`**:
+```text
+ComfyUI/models/
+├── text_encoders/
+│   ├── qwen3.5_9b_int8_convrot.safetensors
+│   └── gemma4_e4b_it_fp8_scaled.safetensors
+└── clip_projections/
+    ├── minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors
+    └── minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors
 ```
 
-### 2. Run the Conversion Script
+4. **Restart ComfyUI** and wire:
+   - **Native ComfyUI encoders:** `Load CLIP` → **`Plato's Key Patch CLIP (H3 Plug & Play)`** (`strength = 1.00`, `apply_to_pooled = False`) → `MiniMax H3 Reference to Video` / `MiniMax H3 Image to Video`.
+   - **Any HuggingFace model:** **`Plato's Key Load Any HF Text Encoder (H3)`** (`model_id`, `key_file`, `offload_to_cpu = True`) → `MiniMax H3 Reference to Video` / `MiniMax H3 Image to Video`.
 
-- **Same-tokenizer family** (e.g., `Qwen 3.5 2B / 4B` → `Qwen 3.5 9B` / H3 32B): uses exact 1:1 `--align token`:
+### Included ComfyUI Nodes (`conditioning/platos_key`)
+
+- **`Plato's Key Patch CLIP (H3 Plug & Play)`**: Drop-in wrapper for native ComfyUI `CLIPLoader` (auto layer, multi-layer `donor_layers`, `RMSNorm`, `<bos>`, and `minimax_token_tags` parity).
+- **`Plato's Key Load Any HF Text Encoder (H3)`**: Loads any `transformers` model from HuggingFace or disk, applies single- or multi-layer Plato's Key, and auto-offloads to CPU after encoding.
+- **`Plato's Key Apply (Procrustes)`**: Projects an existing `CONDITIONING` tensor directly.
+- **`Plato's Key CLIP Text Encode`**: One-step text encode + Plato's Key projection.
+
+## Calibration & Conversion Script (Create Your Own Key — Zero Gradients)
+
+Convert any HuggingFace text encoder in minutes with [`calibrate_platos_key.py`](calibrate_platos_key.py) (`--method ridge` by default, with automatic held-out `λ` selection):
+
 ```bash
 python calibrate_platos_key.py \
-  --donor Qwen/Qwen3.5-4B \
+  --donor Qwen/Qwen3.5-2B \
   --target Qwen/Qwen3.5-9B \
-  --prompts prompts_corpus.json \
+  --method ridge \
   --align token \
-  --output keys/minimax_h3_32b_pk_qwen3.5_4b.safetensors
+  --output keys/my_ridge_key.safetensors
 ```
 
-- **Cross-tokenizer family** (e.g., `Gemma 4` → H3 32B): automatically aligns shared word spans via `--align word`:
-```bash
-python calibrate_platos_key.py \
-  --donor google/gemma-4-E4B-it \
-  --target Qwen/Qwen3.5-9B \
-  --prompts prompts_corpus.json \
-  --align word \
-  --output keys/minimax_h3_32b_pk_gemma4_e4b.safetensors
-```
-
-### 3. Closed-Form Ridge Solver (Python API)
-
-For maximum **Cosine** and **R²** on anisotropic target spaces (like MiniMax-H3's 5,120-dim 32B space), use `fit_ridge_key` from [`platos_key_core.py`](platos_key_core.py):
+### Python API (`platos_key_core.py`)
 
 ```python
 from platos_key_core import fit_ridge_key, evaluate_platos_key, save_platos_key
 
-key = fit_ridge_key(
-    x_donor_train,          # [N, d_donor]
-    x_target_train,         # [N, 5120]
-    ridge_lambda=10.0,      # sweep [0.01, 0.1, 1.0, 10.0, 100.0] on held-out val split
-    norm_variance=False,    # True for ridge_norm
-)
+key = fit_ridge_key(x_donor_train, x_target_train, ridge_lambda=100.0)
 metrics = evaluate_platos_key(x_donor_val, x_target_val, key)
 save_platos_key(key, "ComfyUI/models/clip_projections/my_custom_key.safetensors")
 ```
 
-### 4. Use in ComfyUI
+## License
 
-Copy the resulting `.safetensors` file into `ComfyUI/models/clip_projections/`, restart ComfyUI, and select it in **`Plato's Key Patch CLIP (H3 Plug & Play)`**.
-
-## Calibration Metrics (`Alissonerdx/TE-PK-Minimax-H3`)
-
-> **v3 Direct-32B Streaming Ridge (Live):** All 9 encoders are calibrated in closed-form `float64` Ridge regression directly against MiniMax-H3's native **`Qwen3-VL-32B` (layer 50 unnormalized, 5,120-dim)** across **20,029 diverse video prompts** (95/5 held-out prompt split: `2.34M` Qwen token pairs / `1.62M` Gemma word spans) — zero gradient descent, zero LoRA, zero MLP.
-
-| Encoder (Key File) | Dims | Method | **Cosine** | **R²** | Size |
-|---|---:|:---:|---:|---:|---:|
-| [Qwen3.5-9B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors) | `4096→5120` | Ridge (`-1`) | **0.9305** | **0.9905** | 80 MB |
-| [Qwen3.5-2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors) | `2048→5120` | Ridge (`-1`) | **0.9257** | **0.9916** | 40 MB |
-| [Qwen3.5-4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors) | `2560→5120` | Ridge (`-1`) | **0.9182** | **0.9902** | 50 MB |
-| [Qwen3.5-0.8B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors) | `1024→5120` | Ridge (`-1`) | **0.9111** | **0.9901** | 20 MB |
-| [Qwen3.8-27B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.8/minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors) | `5120→5120` | Ridge (`-1`) | **0.8994** | **0.9846** | 100 MB |
-| [Gemma-4-31B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_31b_layer-2.safetensors) | `5376→5120` | Ridge (`-2`) | **0.7583** | **0.8579** | 105 MB |
-| [Gemma-4-12B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_12b_layer-2.safetensors) | `3840→5120` | Ridge (`-2`) | **0.7161** | **0.5490** | 75 MB |
-| [Gemma-4-E4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_e4b_layer-2.safetensors) | `2560→5120` | Ridge (`-2`) | **0.7079** | **0.7874** | 50 MB |
-| [Gemma-4-E2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_e2b_layer-2.safetensors) | `1536→5120` | Ridge (`-2`) | **0.6946** | **0.7622** | 30 MB |
-
-## Testing
-
-```bash
-CUDA_VISIBLE_DEVICES="" python -m unittest tests/test_platos_key.py
-```
+Apache 2.0 — see [LICENSE](LICENSE). Inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key).
