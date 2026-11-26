@@ -101,6 +101,8 @@ Copy the resulting `.safetensors` file into `ComfyUI/models/clip_projections/`, 
 
 ## Calibration Metrics (`Alissonerdx/TE-PK-Minimax-H3`)
 
+> **Recommendation:** Always prefer the **`Ridge`** keys (`*_pk_ridge_*.safetensors`) for MiniMax-H3 — they accurately match H3's anisotropic 5,120-dim outlier channels (**Cosine 0.90–0.96+**, **R² up to 0.995**) and deliver dramatically stronger prompt adherence than isotropic Procrustes.
+
 Calibrated on `800` domain-matched prompts from [`Alissonerdx/qwen35-h3-training-data`](https://huggingface.co/datasets/Alissonerdx/qwen35-h3-training-data) (90/10 held-out prompt split) directly into MiniMax-H3's native **5120-dim `Qwen3-VL-32B`** geometric space.
 
 | Encoder (Key File) | Dims | Method | **Cosine** | **R²** | Size |
