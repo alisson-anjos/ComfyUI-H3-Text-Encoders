@@ -19,6 +19,9 @@ All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToV
 
 - [Watch / download side-by-side comparison video (`showcase/H3_PlatosKey_X_Demo_Final.mp4`)](showcase/H3_PlatosKey_X_Demo_Final.mp4)
 
+
+> **Tip on `strength`:** Keep `strength = 1.0` for **Qwen 3.5 / Qwen 3.8** (`R² > 98.5%`). For cross-family **Gemma 4** keys (`R² ≈ 76–86%`), try **`strength = 1.4 – 1.8`** in `PlatosKeyPatchCLIP` to restore Ridge variance shrinkage and unlock stronger prompt adherence!
+
 ## Step-by-Step Setup (Where to Place Files)
 
 1. **Install this custom node**:
