@@ -354,23 +354,39 @@ class PlatosKeyPatchCLIP:
         if orig_tok is not None:
             def _wrapped_tokenize(*args, **kwargs):
                 # 2. Match MiniMax-H3 / calibration prompt format: no chat template (`llama_template="{}"`)
-                kw_no_tpl = dict(kwargs)
-                kw_no_tpl.setdefault("llama_template", "{}")
+                #    and disable LTX-style 1024-token left-padding (`min_length = 1`) on Gemma 4 tokenizers!
+                tok_obj = getattr(patched, "tokenizer", None)
+                saved_min_len = []
+                if tok_obj is not None:
+                    clip_key = getattr(tok_obj, "clip", None)
+                    candidates = [tok_obj]
+                    if isinstance(clip_key, str) and hasattr(tok_obj, clip_key):
+                        candidates.append(getattr(tok_obj, clip_key))
+                    for c in candidates:
+                        if hasattr(c, "min_length") and isinstance(c.min_length, int) and c.min_length > 1:
+                            saved_min_len.append((c, c.min_length))
+                            c.min_length = 1
                 try:
-                    return orig_tok(*args, **kw_no_tpl)
-                except TypeError:
-                    # Non-MiniMax CLIPs (e.g. Gemma 4, Mistral, T5, generic Qwen) may reject
-                    # MiniMax-specific kwargs like `minimax_ref_items`, `images`, or `llama_template`.
-                    for drop_keys in (
-                        ("minimax_ref_items", "images", "return_word_ids"),
-                        ("minimax_ref_items", "images", "return_word_ids", "llama_template"),
-                    ):
-                        clean_kw = {k: v for k, v in kw_no_tpl.items() if k not in drop_keys}
-                        try:
-                            return orig_tok(*args, **clean_kw)
-                        except TypeError:
-                            continue
-                    return orig_tok(*args[:1])
+                    kw_no_tpl = dict(kwargs)
+                    kw_no_tpl.setdefault("llama_template", "{}")
+                    try:
+                        return orig_tok(*args, **kw_no_tpl)
+                    except TypeError:
+                        # Non-MiniMax CLIPs (e.g. Gemma 4, Mistral, T5, generic Qwen) may reject
+                        # MiniMax-specific kwargs like `minimax_ref_items`, `images`, or `llama_template`.
+                        for drop_keys in (
+                            ("minimax_ref_items", "images", "return_word_ids"),
+                            ("minimax_ref_items", "images", "return_word_ids", "llama_template"),
+                        ):
+                            clean_kw = {k: v for k, v in kw_no_tpl.items() if k not in drop_keys}
+                            try:
+                                return orig_tok(*args, **clean_kw)
+                            except TypeError:
+                                continue
+                        return orig_tok(*args[:1])
+                finally:
+                    for c, old_ml in saved_min_len:
+                        c.min_length = old_ml
             patched.tokenize = _wrapped_tokenize
 
         def _ensure_h3_meta(cond_list):
