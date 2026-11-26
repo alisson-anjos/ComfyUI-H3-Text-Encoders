@@ -288,25 +288,84 @@ class PlatosKeyPatchCLIP:
 
         patched = clip.clone() if hasattr(clip, "clone") else clip
 
+        # 1. Exact layer & RMSNorm parity with HuggingFace transformers calibration:
+        #    - When calibrated on last layer (-1), HF `hidden_states[-1]` HAS final RMSNorm applied.
+        #    - ComfyUI's `minimax` CLIP defaults to `layer_norm_hidden_state=False` (or multi-layer 4D),
+        #      which causes a huge distribution mismatch unless we set `layer_norm_hidden_state` & `clip_layer`.
+        tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer") or "-1"
+        try:
+            tap_idx = int(tap_str)
+        except ValueError:
+            tap_idx = -1
+        use_final_norm = (tap_idx == -1)
+
+        te_mod = None
+        csm = getattr(patched, "cond_stage_model", None)
+        if csm is not None:
+            te_name = getattr(csm, "clip_name", None)
+            if te_name and hasattr(csm, te_name):
+                te_mod = getattr(csm, te_name)
+            if te_mod is None:
+                for attr in dir(csm):
+                    if attr.startswith("_"):
+                        continue
+                    obj = getattr(csm, attr, None)
+                    if hasattr(obj, "layer_idx") and hasattr(obj, "transformer"):
+                        te_mod = obj
+                        break
+        if te_mod is not None:
+            if hasattr(patched, "clip_layer"):
+                try:
+                    patched.clip_layer(tap_idx)
+                except Exception:
+                    pass
+            if hasattr(te_mod, "layer_norm_hidden_state"):
+                te_mod.layer_norm_hidden_state = use_final_norm
+
         in_proj = [False]
 
         orig_tok = getattr(patched, "tokenize", None)
         if orig_tok is not None:
             def _wrapped_tokenize(*args, **kwargs):
+                # 2. Match MiniMax-H3 / calibration prompt format: no chat template (`llama_template="{}"`)
+                kw_no_tpl = dict(kwargs)
+                kw_no_tpl.setdefault("llama_template", "{}")
                 try:
-                    return orig_tok(*args, **kwargs)
+                    return orig_tok(*args, **kw_no_tpl)
                 except TypeError:
-                    # Non-MiniMax CLIPs (e.g. Gemma 4, Mistral, T5, generic Qwen) don't accept
-                    # MiniMax-specific kwargs like `minimax_ref_items` or `images`.
-                    clean_kw = {
-                        k: v for k, v in kwargs.items()
-                        if k not in ("minimax_ref_items", "images", "return_word_ids")
-                    }
-                    try:
-                        return orig_tok(*args, **clean_kw)
-                    except TypeError:
-                        return orig_tok(*args[:1])
+                    # Non-MiniMax CLIPs (e.g. Gemma 4, Mistral, T5, generic Qwen) may reject
+                    # MiniMax-specific kwargs like `minimax_ref_items`, `images`, or `llama_template`.
+                    for drop_keys in (
+                        ("minimax_ref_items", "images", "return_word_ids"),
+                        ("minimax_ref_items", "images", "return_word_ids", "llama_template"),
+                    ):
+                        clean_kw = {k: v for k, v in kw_no_tpl.items() if k not in drop_keys}
+                        try:
+                            return orig_tok(*args, **clean_kw)
+                        except TypeError:
+                            continue
+                    return orig_tok(*args[:1])
             patched.tokenize = _wrapped_tokenize
+
+        def _ensure_h3_meta(cond_list):
+            # 3. Emit MiniMax-H3 required metadata (`minimax_token_tags`, 5120-dim `pooled_output`)
+            out = []
+            for cond_tensor, meta in cond_list:
+                new_meta = dict(meta) if isinstance(meta, dict) else {}
+                if "minimax_token_tags" not in new_meta and isinstance(cond_tensor, torch.Tensor) and cond_tensor.ndim == 3:
+                    new_meta["minimax_token_tags"] = torch.ones(
+                        (cond_tensor.shape[0], cond_tensor.shape[1]), dtype=torch.long
+                    )
+                if not p_val and isinstance(cond_tensor, torch.Tensor) and cond_tensor.ndim == 3:
+                    pooled = new_meta.get("pooled_output")
+                    if pooled is None or (isinstance(pooled, torch.Tensor) and pooled.shape[-1] != key.d_target):
+                        new_meta["pooled_output"] = torch.zeros(
+                            (cond_tensor.shape[0], key.d_target),
+                            dtype=cond_tensor.dtype,
+                            device=cond_tensor.device,
+                        )
+                out.append([cond_tensor, new_meta])
+            return out
 
         orig_sched = getattr(patched, "encode_from_tokens_scheduled", None)
         if orig_sched is not None:
@@ -316,7 +375,8 @@ class PlatosKeyPatchCLIP:
                 in_proj[0] = True
                 try:
                     cond = orig_sched(*args, **kwargs)
-                    return _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                    mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                    return _ensure_h3_meta(mapped)
                 finally:
                     in_proj[0] = False
             patched.encode_from_tokens_scheduled = _wrapped_sched
