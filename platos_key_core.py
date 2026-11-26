@@ -206,18 +206,23 @@ def apply_platos_key(
         Mapped hidden states of shape [..., d_target] with same device and dtype as `x`.
     """
     if x.ndim == 4:
-        # ComfyUI multi-layer CLIP outputs have shape [B, num_layers, T, D] (e.g. Qwen3.5-9B -> [1, 36, T, 4096]).
-        # Select the calibrated tap layer (default -1 = last layer) so downstream H3 receives [B, T, 5120].
-        tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer")
-        tap_idx = -1
-        if tap_str is not None:
-            try:
-                parsed = int(tap_str)
-                if -x.shape[1] <= parsed < x.shape[1]:
-                    tap_idx = parsed
-            except ValueError:
-                pass
-        x = x[:, tap_idx, :, :]
+        # ComfyUI multi-layer CLIP outputs have shape [B, num_layers, T, D] (e.g. Qwen3.5-9B / Gemma 4).
+        # Support either multi-layer concatenation (`donor_layers="[...]"` -> [B, T, K*D]) or single tap layer.
+        layers_meta = key.metadata.get("donor_layers")
+        if layers_meta:
+            layer_indices = [int(v) for v in json.loads(layers_meta)]
+            x = torch.cat([x[:, idx, :, :] for idx in layer_indices], dim=-1)
+        else:
+            tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer")
+            tap_idx = -1
+            if tap_str is not None:
+                try:
+                    parsed = int(tap_str)
+                    if -x.shape[1] <= parsed < x.shape[1]:
+                        tap_idx = parsed
+                except ValueError:
+                    pass
+            x = x[:, tap_idx, :, :]
 
     if x.shape[-1] != key.d_donor:
         dim_hints = {

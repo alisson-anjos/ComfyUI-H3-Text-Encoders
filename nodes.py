@@ -288,14 +288,19 @@ class PlatosKeyPatchCLIP:
 
         patched = clip.clone() if hasattr(clip, "clone") else clip
 
-        tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer") or "-1"
-        try:
-            tap_idx = int(tap_str)
-        except ValueError:
-            tap_idx = -1
-        use_final_norm = (tap_idx == -1)
-        layer_spec = "last" if tap_idx == -1 else tap_idx
-        if hasattr(patched, "clip_layer"):
+        multi_layers_str = key.metadata.get("donor_layers", "")
+        if multi_layers_str:
+            use_final_norm = False
+            layer_spec = "all"
+        else:
+            tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer") or "-1"
+            try:
+                tap_idx = int(tap_str)
+            except ValueError:
+                tap_idx = -1
+            use_final_norm = (tap_idx == -1)
+            layer_spec = "last" if tap_idx == -1 else tap_idx
+        if hasattr(patched, "clip_layer") and layer_spec != "all":
             try:
                 patched.clip_layer(None if layer_spec == "last" else layer_spec)
             except Exception:
@@ -322,8 +327,8 @@ class PlatosKeyPatchCLIP:
             csm = getattr(patched, "cond_stage_model", None)
             targets = _find_inner_clip_models(csm)
             saved = []
-            new_layer = "last" if layer_spec == "last" else "hidden"
-            new_layer_idx = None if layer_spec == "last" else layer_spec
+            new_layer = "all" if layer_spec == "all" else ("last" if layer_spec == "last" else "hidden")
+            new_layer_idx = None if layer_spec in ("all", "last") else layer_spec
             for t in targets:
                 st = {}
                 for attr in ("layer", "layer_idx", "layer_norm_hidden_state", "options_default"):
@@ -409,11 +414,17 @@ class PlatosKeyPatchCLIP:
             stripped = []
             for cond_tensor, meta in cond_list:
                 new_meta = dict(meta) if isinstance(meta, dict) else {}
-                if isinstance(cond_tensor, torch.Tensor) and cond_tensor.ndim == 3 and cond_tensor.shape[1] > 1:
-                    cond_tensor = cond_tensor[:, 1:, :]
-                    am = new_meta.get("attention_mask")
-                    if isinstance(am, torch.Tensor) and am.ndim >= 2 and am.shape[-1] > 1:
-                        new_meta["attention_mask"] = am[..., 1:]
+                if isinstance(cond_tensor, torch.Tensor):
+                    if cond_tensor.ndim == 3 and cond_tensor.shape[1] > 1:
+                        cond_tensor = cond_tensor[:, 1:, :]
+                        am = new_meta.get("attention_mask")
+                        if isinstance(am, torch.Tensor) and am.ndim >= 2 and am.shape[-1] > 1:
+                            new_meta["attention_mask"] = am[..., 1:]
+                    elif cond_tensor.ndim == 4 and cond_tensor.shape[2] > 1:
+                        cond_tensor = cond_tensor[:, :, 1:, :]
+                        am = new_meta.get("attention_mask")
+                        if isinstance(am, torch.Tensor) and am.ndim >= 2 and am.shape[-1] > 1:
+                            new_meta["attention_mask"] = am[..., 1:]
                 stripped.append([cond_tensor, new_meta])
             return stripped
 
