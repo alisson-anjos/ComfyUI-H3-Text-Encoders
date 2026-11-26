@@ -99,16 +99,16 @@ Copy the resulting `.safetensors` file into `ComfyUI/models/clip_projections/`, 
 
 Calibrated on `800` domain-matched prompts from [`Alissonerdx/qwen35-h3-training-data`](https://huggingface.co/datasets/Alissonerdx/qwen35-h3-training-data) (90/10 held-out prompt split) directly into MiniMax-H3's native **5120-dim `Qwen3-VL-32B`** geometric space.
 
-| Encoder (Key File) | Dims | Align | **Cosine** | p10 | Size |
+| Encoder (Key File) | Dims | Method | **Cosine** | **R²** | Size |
 |---|---:|:---:|---:|---:|---:|
-| [Qwen3.5-0.8B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_0.8b.safetensors) | `1024→5120` | token | **0.8943** | 0.8423 | 20 MB |
-| [Qwen3.5-2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_2b.safetensors) | `2048→5120` | token | **0.8935** | 0.8416 | 40 MB |
-| [Qwen3.5-9B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_9b.safetensors) | `4096→5120` | token | **0.8908** | 0.8333 | 80 MB |
-| [Qwen3.5-4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_4b.safetensors) | `2560→5120` | token | **0.8902** | 0.8348 | 50 MB |
-| [Qwen3.8-27B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.8/minimax_h3_32b_pk_qwen3.8_27b.safetensors) | `5120→5120` | token | **0.8812** | 0.8198 | 100 MB |
-| [Gemma-4-E4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_e4b.safetensors) | `2560→5120` | word | **0.8761** | 0.8272 | 50 MB |
-| [Gemma-4-E2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_e2b.safetensors) | `1536→5120` | word | **0.8646** | 0.8109 | 30 MB |
-| [Gemma-4-12B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_12b.safetensors) | `3840→5120` | word | **0.8440** | 0.7873 | 75 MB |
+| [Qwen3.5-9B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors) | `4096→5120` | Ridge (`-1`) | **0.9626** | **0.9935** | 80 MB |
+| [Qwen3.5-2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors) | `2048→5120` | Ridge (`-1`) | **0.9620** | **0.9949** | 40 MB |
+| [Qwen3.5-4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors) | `2560→5120` | Ridge (`-1`) | **0.9502** | **0.9917** | 50 MB |
+| [Qwen3.5-0.8B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors) | `1024→5120` | Ridge (`-1`) | **0.9492** | **0.9931** | 20 MB |
+| [Gemma-4-E2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_e2b_layer-2.safetensors) | `1536→5120` | Ridge (`-2`) | **0.9045** | **0.7177** | 30 MB |
+| [Qwen3.8-27B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.8/minimax_h3_32b_pk_qwen3.8_27b.safetensors) | `5120→5120` | Procrustes *(v2 running)* | 0.8812 | 0.0338 | 100 MB |
+| [Gemma-4-E4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_e4b.safetensors) | `2560→5120` | Procrustes *(v2 running)* | 0.8761 | 0.1125 | 50 MB |
+| [Gemma-4-12B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_12b.safetensors) | `3840→5120` | Procrustes *(v2 running)* | 0.8440 | 0.0720 | 75 MB |
 
 ## Testing
 
