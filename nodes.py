@@ -295,6 +295,11 @@ class PlatosKeyPatchCLIP:
             tap_idx = -1
         use_final_norm = (tap_idx == -1)
         layer_spec = "last" if tap_idx == -1 else tap_idx
+        if hasattr(patched, "clip_layer"):
+            try:
+                patched.clip_layer(None if layer_spec == "last" else layer_spec)
+            except Exception:
+                pass
 
         def _find_inner_clip_models(csm):
             if csm is None:
