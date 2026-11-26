@@ -220,8 +220,21 @@ def apply_platos_key(
         x = x[:, tap_idx, :, :]
 
     if x.shape[-1] != key.d_donor:
+        dim_hints = {
+            1024: "Qwen3.5-0.8B",
+            1536: "Gemma-4-E2B",
+            2048: "Qwen3.5-2B",
+            2560: "Qwen3.5-4B or Gemma-4-E4B",
+            3840: "Gemma-4-12B",
+            4096: "Qwen3.5-9B",
+            5120: "Qwen3.8-27B or Gemma-4-31B",
+        }
+        got_hint = dim_hints.get(x.shape[-1], f"{x.shape[-1]}-dim encoder")
+        key_model = key.metadata.get("donor_model") or dim_hints.get(key.d_donor, f"{key.d_donor}-dim encoder")
         raise ValueError(
-            f"Input hidden dimension {x.shape[-1]} does not match Plato's Key donor dimension {key.d_donor}."
+            f"Encoder/Key dimension mismatch: your loaded CLIP outputs {x.shape[-1]}-dim "
+            f"(likely {got_hint}), but the selected Plato's Key expects {key.d_donor}-dim "
+            f"({key_model}). Please select the matching .safetensors key for your loaded CLIP."
         )
 
     orig_dtype = x.dtype
