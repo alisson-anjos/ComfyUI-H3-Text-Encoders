@@ -322,6 +322,8 @@ class PlatosKeyPatchCLIP:
             csm = getattr(patched, "cond_stage_model", None)
             targets = _find_inner_clip_models(csm)
             saved = []
+            new_layer = "last" if layer_spec == "last" else "hidden"
+            new_layer_idx = None if layer_spec == "last" else layer_spec
             for t in targets:
                 st = {}
                 for attr in ("layer", "layer_idx", "layer_norm_hidden_state", "options_default"):
@@ -330,17 +332,21 @@ class PlatosKeyPatchCLIP:
                         st[attr] = dict(val) if isinstance(val, dict) else val
                 saved.append((t, st))
                 if hasattr(t, "layer"):
-                    t.layer = "last" if layer_spec == "last" else "hidden"
+                    t.layer = new_layer
                 if hasattr(t, "layer_idx"):
-                    t.layer_idx = None if layer_spec == "last" else layer_spec
+                    t.layer_idx = new_layer_idx
                 if hasattr(t, "layer_norm_hidden_state"):
                     t.layer_norm_hidden_state = use_final_norm
-                if hasattr(t, "options_default") and isinstance(t.options_default, dict):
-                    od = dict(t.options_default)
-                    od["layer"] = "last" if layer_spec == "last" else "hidden"
-                    od["layer_idx"] = None if layer_spec == "last" else layer_spec
-                    od["layer_norm_hidden_state"] = use_final_norm
-                    t.options_default = od
+                if hasattr(t, "options_default"):
+                    od_orig = t.options_default
+                    if isinstance(od_orig, tuple) and len(od_orig) >= 2:
+                        t.options_default = (new_layer, new_layer_idx) + od_orig[2:]
+                    elif isinstance(od_orig, dict):
+                        od = dict(od_orig)
+                        od["layer"] = new_layer
+                        od["layer_idx"] = new_layer_idx
+                        od["layer_norm_hidden_state"] = use_final_norm
+                        t.options_default = od
             try:
                 yield
             finally:
@@ -431,7 +437,8 @@ class PlatosKeyPatchCLIP:
                     return orig_enc(*args, **kwargs)
                 in_proj[0] = True
                 try:
-                    out = orig_enc(*args, **kwargs)
+                    with _override_extraction():
+                        out = orig_enc(*args, **kwargs)
                     if isinstance(out, dict) and "cond" in out:
                         out = dict(out)
                         out["cond"] = apply_platos_key(out["cond"], key, strength=s_val)
