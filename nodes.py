@@ -288,39 +288,60 @@ class PlatosKeyPatchCLIP:
 
         patched = clip.clone() if hasattr(clip, "clone") else clip
 
-        # 1. Exact layer & RMSNorm parity with HuggingFace transformers calibration:
-        #    - When calibrated on last layer (-1), HF `hidden_states[-1]` HAS final RMSNorm applied.
-        #    - ComfyUI's `minimax` CLIP defaults to `layer_norm_hidden_state=False` (or multi-layer 4D),
-        #      which causes a huge distribution mismatch unless we set `layer_norm_hidden_state` & `clip_layer`.
         tap_str = key.metadata.get("donor_layer") or key.metadata.get("tap_layer") or "-1"
         try:
             tap_idx = int(tap_str)
         except ValueError:
             tap_idx = -1
         use_final_norm = (tap_idx == -1)
+        layer_spec = "last" if tap_idx == -1 else tap_idx
 
-        te_mod = None
-        csm = getattr(patched, "cond_stage_model", None)
-        if csm is not None:
-            te_name = getattr(csm, "clip_name", None)
-            if te_name and hasattr(csm, te_name):
-                te_mod = getattr(csm, te_name)
-            if te_mod is None:
-                for attr in dir(csm):
-                    if attr.startswith("_"):
-                        continue
-                    obj = getattr(csm, attr, None)
-                    if hasattr(obj, "layer_idx") and hasattr(obj, "transformer"):
-                        te_mod = obj
-                        break
-        if te_mod is not None:
-            if hasattr(patched, "clip_layer"):
-                try:
-                    patched.clip_layer(tap_idx)
-                except Exception:
-                    pass
-            if hasattr(te_mod, "layer_norm_hidden_state"):
-                te_mod.layer_norm_hidden_state = use_final_norm
+        def _find_inner_clip_models(csm):
+            if csm is None:
+                return []
+            if hasattr(csm, "layer_norm_hidden_state") or hasattr(csm, "options_default"):
+                return [csm]
+            found, seen = [], set()
+            if hasattr(csm, "modules"):
+                for mod in csm.modules():
+                    if mod is not csm and id(mod) not in seen:
+                        if hasattr(mod, "layer_norm_hidden_state") or hasattr(mod, "options_default"):
+                            seen.add(id(mod))
+                            found.append(mod)
+            return found
+
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _override_extraction():
+            csm = getattr(patched, "cond_stage_model", None)
+            targets = _find_inner_clip_models(csm)
+            saved = []
+            for t in targets:
+                st = {}
+                for attr in ("layer", "layer_idx", "layer_norm_hidden_state", "options_default"):
+                    if hasattr(t, attr):
+                        val = getattr(t, attr)
+                        st[attr] = dict(val) if isinstance(val, dict) else val
+                saved.append((t, st))
+                if hasattr(t, "layer"):
+                    t.layer = "last" if layer_spec == "last" else "hidden"
+                if hasattr(t, "layer_idx"):
+                    t.layer_idx = None if layer_spec == "last" else layer_spec
+                if hasattr(t, "layer_norm_hidden_state"):
+                    t.layer_norm_hidden_state = use_final_norm
+                if hasattr(t, "options_default") and isinstance(t.options_default, dict):
+                    od = dict(t.options_default)
+                    od["layer"] = "last" if layer_spec == "last" else "hidden"
+                    od["layer_idx"] = None if layer_spec == "last" else layer_spec
+                    od["layer_norm_hidden_state"] = use_final_norm
+                    t.options_default = od
+            try:
+                yield
+            finally:
+                for t, st in saved:
+                    for attr, val in st.items():
+                        setattr(t, attr, val)
 
         in_proj = [False]
 
@@ -374,7 +395,8 @@ class PlatosKeyPatchCLIP:
                     return orig_sched(*args, **kwargs)
                 in_proj[0] = True
                 try:
-                    cond = orig_sched(*args, **kwargs)
+                    with _override_extraction():
+                        cond = orig_sched(*args, **kwargs)
                     mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
                     return _ensure_h3_meta(mapped)
                 finally:
