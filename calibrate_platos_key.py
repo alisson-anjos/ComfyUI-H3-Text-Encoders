@@ -351,6 +351,11 @@ def build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Explicit L2 regularization lambda for Ridge (omit to auto-select best on validation split)",
     )
+    parser.add_argument(
+        "--drop-first-token",
+        action="store_true",
+        help="Drop token/bin 0 from each prompt before fitting (recommended when calibrating against unnormalized Qwen3-VL-32B layer 50 to avoid its token-0 attention sink).",
+    )
     parser.add_argument("--keep-special-tokens", action="store_true", help="Include BOS/EOS tokens in alignment")
     parser.add_argument("--trust-remote-code", action="store_true", help="Pass trust_remote_code=True to transformers")
     return parser
@@ -403,6 +408,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
 
     aligned = align_prompt_features(donor_feats, target_feats, align_mode)
+    if args.drop_first_token:
+        aligned = [(xd[1:], xt[1:]) for xd, xt in aligned if xd.shape[0] > 1 and xt.shape[0] > 1]
+        print(f"[Plato's Key] Dropped token/bin 0 attention sink across {len(aligned)} prompts.")
     x_train, y_train, x_val, y_val = split_train_val(aligned, val_fraction=args.val_split, seed=args.seed)
     print(
         f"[Plato's Key] Aligned vectors -> train: {tuple(x_train.shape)} -> {tuple(y_train.shape)}, "
