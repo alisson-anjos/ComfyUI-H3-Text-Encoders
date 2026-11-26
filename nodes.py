@@ -357,15 +357,17 @@ class PlatosKeyPatchCLIP:
         in_proj = [False]
 
         orig_tok = getattr(patched, "tokenize", None)
+        prepended_bos = [False]
         if orig_tok is not None:
-            keep_bos = (key.metadata.get("add_special_tokens", "false").lower() == "true")
             def _wrapped_tokenize(*args, **kwargs):
                 # 2. Match MiniMax-H3 / calibration prompt format:
                 #    - no chat template (`llama_template="{}"`)
                 #    - disable LTX-style 1024-token left-padding (`min_length = 1`) on Gemma 4
-                #    - disable auto-prepended `<bos>` (`start_token = None`) unless key was calibrated with special tokens
+                #    - KEEP `<bos>` (`start_token`) during the forward pass (Gemma 4 needs it as an
+                #      attention sink, matching v3 calibration), then strip token 0 after encoding!
                 tok_obj = getattr(patched, "tokenizer", None)
                 saved_tok_attrs = []
+                has_bos = False
                 if tok_obj is not None:
                     clip_key = getattr(tok_obj, "clip", None)
                     candidates = [tok_obj]
@@ -375,9 +377,9 @@ class PlatosKeyPatchCLIP:
                         if hasattr(c, "min_length") and isinstance(c.min_length, int) and c.min_length > 1:
                             saved_tok_attrs.append((c, "min_length", c.min_length))
                             c.min_length = 1
-                        if not keep_bos and hasattr(c, "start_token") and c.start_token is not None:
-                            saved_tok_attrs.append((c, "start_token", c.start_token))
-                            c.start_token = None
+                        if hasattr(c, "start_token") and c.start_token is not None:
+                            has_bos = True
+                prepended_bos[0] = has_bos
                 try:
                     kw_no_tpl = dict(kwargs)
                     kw_no_tpl.setdefault("llama_template", "{}")
@@ -400,6 +402,20 @@ class PlatosKeyPatchCLIP:
                     for c, attr_name, old_val in saved_tok_attrs:
                         setattr(c, attr_name, old_val)
             patched.tokenize = _wrapped_tokenize
+
+        def _strip_bos_cond(cond_list):
+            if not prepended_bos[0]:
+                return cond_list
+            stripped = []
+            for cond_tensor, meta in cond_list:
+                new_meta = dict(meta) if isinstance(meta, dict) else {}
+                if isinstance(cond_tensor, torch.Tensor) and cond_tensor.ndim == 3 and cond_tensor.shape[1] > 1:
+                    cond_tensor = cond_tensor[:, 1:, :]
+                    am = new_meta.get("attention_mask")
+                    if isinstance(am, torch.Tensor) and am.ndim >= 2 and am.shape[-1] > 1:
+                        new_meta["attention_mask"] = am[..., 1:]
+                stripped.append([cond_tensor, new_meta])
+            return stripped
 
         def _ensure_h3_meta(cond_list):
             # 3. Emit MiniMax-H3 required metadata (`minimax_token_tags`, 5120-dim `pooled_output`)
@@ -430,6 +446,7 @@ class PlatosKeyPatchCLIP:
                 try:
                     with _override_extraction():
                         cond = orig_sched(*args, **kwargs)
+                    cond = _strip_bos_cond(cond)
                     mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
                     return _ensure_h3_meta(mapped)
                 finally:
