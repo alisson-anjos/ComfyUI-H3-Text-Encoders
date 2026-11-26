@@ -1,13 +1,20 @@
 [project]
 name = "comfyui-h3-text-encoders"
-description = "Zero-gradient Orthogonal Procrustes (Plato's Key) text encoder adapters for MiniMax-H3 in ComfyUI."
+description = "Zero-gradient Orthogonal Procrustes & Ridge (Plato's Key) text encoder adapters to use Qwen 3.5, Qwen 3.8, Gemma 4, and more with MiniMax-H3 (T2VA/Image, FL2VA, Ref2VA) in ComfyUI."
 version = "0.1.0"
-license = { text = "Apache-2.0" }
-dependencies = ["torch", "safetensors"]
+license = {file = "LICENSE"}
+dependencies = [
+    "safetensors>=0.4.5",
+    "huggingface_hub>=0.28.0",
+    "numpy>=1.26.0",
+]
 
 [project.urls]
 Repository = "https://github.com/alisson-anjos/ComfyUI-H3-Text-Encoders"
+"Bug Tracker" = "https://github.com/alisson-anjos/ComfyUI-H3-Text-Encoders/issues"
 
 [tool.comfy]
 PublisherId = "alisson-anjos"
 DisplayName = "ComfyUI-H3-Text-Encoders"
+Icon = ""
+includes = []
