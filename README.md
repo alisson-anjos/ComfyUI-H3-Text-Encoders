@@ -1,5 +1,10 @@
 # ComfyUI-H3-Text-Encoders
 
+> [!IMPORTANT]
+> **Current `v2 Ridge` keys are already working and ready to test today** (Qwen 3.5 `0.8B–9B` up to `96.26%` cosine / `99.49%` R², Gemma 4 `E2B–31B` up to `92.54%` cosine).
+> - **Active improvement (`v3` in progress):** we are recalibrating all keys on our **full ~20k-prompt dataset** directly against MiniMax-H3's native **`Qwen3-VL-32B`** teacher to push fine-grained prompt adherence even higher.
+> - **Recommendation:** always prefer the **`Ridge`** keys (`*_pk_ridge_*.safetensors`) and keep `ComfyUI-H3-Text-Encoders` updated.
+
 Use any modern ComfyUI-native text encoder (**Qwen 3.5 2B / 4B / 9B**, **Qwen 3.8 27B**, **Gemma 4**, etc.) as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP projection weights**.
 
 Powered by **Plato's Key** (*closed-form Orthogonal Procrustes rotation + global scale via SVD*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a tiny `.safetensors` key (~15–40 MB) that maps a donor encoder's hidden states directly into MiniMax-H3's native **5120-dim `Qwen3-VL-32B`** geometric space:
