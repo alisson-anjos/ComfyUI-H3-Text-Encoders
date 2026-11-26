@@ -47,16 +47,16 @@ python calibrate_platos_key.py \
 
 Calibrated on `800` domain-matched prompts from [`Alissonerdx/qwen35-h3-training-data`](https://huggingface.co/datasets/Alissonerdx/qwen35-h3-training-data) (90/10 held-out prompt split) directly into MiniMax-H3's native **5120-dim `Qwen3-VL-32B`** geometric space.
 
-| Repo Path (`Alissonerdx/TE-PK-Minimax-H3`) | Donor Encoder | Dim Map | Align | Val Cosine | Val Cos p10 | Val R² | Scale | Size |
-|---|---|---|---|---|---|---|---|---|
-| `qwen3.5/minimax_h3_32b_pk_qwen3.5_0.8b.safetensors` | `Qwen/Qwen3.5-0.8B` | `1024 → 5120` | `token` | **0.8943** | 0.8423 | 0.0337 | 1.9316 | 20.0 MB |
-| `qwen3.5/minimax_h3_32b_pk_qwen3.5_2b.safetensors` | `Qwen/Qwen3.5-2B` | `2048 → 5120` | `token` | **0.8935** | 0.8416 | 0.0370 | 1.6867 | 40.0 MB |
-| `qwen3.5/minimax_h3_32b_pk_qwen3.5_9b.safetensors` | `Qwen/Qwen3.5-9B` | `4096 → 5120` | `token` | **0.8908** | 0.8333 | 0.0371 | 1.9752 | 80.0 MB |
-| `qwen3.5/minimax_h3_32b_pk_qwen3.5_4b.safetensors` | `Qwen/Qwen3.5-4B` | `2560 → 5120` | `token` | **0.8902** | 0.8348 | 0.0356 | 1.5572 | 50.0 MB |
-| `qwen3.8/minimax_h3_32b_pk_qwen3.8_27b.safetensors` | `Qwen/Qwen3.8-27B` | `5120 → 5120` | `token` | **0.8812** | 0.8198 | 0.0338 | 1.7440 | 100.0 MB |
-| `gemma4/minimax_h3_32b_pk_gemma4_e4b.safetensors` | `google/gemma-4-E4B-it` | `2560 → 5120` | `word` | **0.8761** | 0.8272 | 0.1125 | 1.1725 | 50.0 MB |
-| `gemma4/minimax_h3_32b_pk_gemma4_e2b.safetensors` | `google/gemma-4-E2B-it` | `1536 → 5120` | `word` | **0.8646** | 0.8109 | 0.1031 | 0.9776 | 30.0 MB |
-| `gemma4/minimax_h3_32b_pk_gemma4_12b.safetensors` | `google/gemma-4-12B-it` | `3840 → 5120` | `word` | **0.8440** | 0.7873 | 0.0720 | 0.5852 | 75.0 MB |
+| Encoder (Key File) | Dims | Align | **Cosine** | p10 | Size |
+|---|---:|:---:|---:|---:|---:|
+| [Qwen3.5-0.8B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_0.8b.safetensors) | `1024→5120` | token | **0.8943** | 0.8423 | 20 MB |
+| [Qwen3.5-2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_2b.safetensors) | `2048→5120` | token | **0.8935** | 0.8416 | 40 MB |
+| [Qwen3.5-9B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_9b.safetensors) | `4096→5120` | token | **0.8908** | 0.8333 | 80 MB |
+| [Qwen3.5-4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.5/minimax_h3_32b_pk_qwen3.5_4b.safetensors) | `2560→5120` | token | **0.8902** | 0.8348 | 50 MB |
+| [Qwen3.8-27B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/qwen3.8/minimax_h3_32b_pk_qwen3.8_27b.safetensors) | `5120→5120` | token | **0.8812** | 0.8198 | 100 MB |
+| [Gemma-4-E4B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_e4b.safetensors) | `2560→5120` | word | **0.8761** | 0.8272 | 50 MB |
+| [Gemma-4-E2B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_e2b.safetensors) | `1536→5120` | word | **0.8646** | 0.8109 | 30 MB |
+| [Gemma-4-12B](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/blob/main/gemma4/minimax_h3_32b_pk_gemma4_12b.safetensors) | `3840→5120` | word | **0.8440** | 0.7873 | 75 MB |
 
 ## Testing
 
