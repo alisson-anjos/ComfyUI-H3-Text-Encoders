@@ -41,6 +41,10 @@ All adapters are solved in **closed form (zero gradient descent, zero LoRA)**:
 - **`Ridge` (`*_pk_ridge_*.safetensors`) — Recommended for MiniMax-H3**: Solves closed-form Ridge regression $(X^\top X + \lambda I)^{-1} X^\top Y$. Unlike isotropic Procrustes, Ridge scales each of the 5,120 target channels independently, accurately matching MiniMax-H3's anisotropic outlier channels (highest **Cosine** and **R²**). Tip: setting `strength = 1.05–1.10` gives the variance-matched (`ridge_norm`) effect directly at inference time.
 - **`Procrustes` (`*_pk_*.safetensors`)**: Pure Stanford *Plato's Key* — a strict orthogonal rotation ($R^\top R = I$) plus a single global scale. Preserves exact donor angles, with lower R² on outlier channels.
 - **`_norm` variants**: Rescale the projected vector to match `1.00×` target norm/variance, compensating for slight Ridge shrinkage (`~0.92×`).
+- **What do `(-1)` and `(-2)` mean in the table?**
+  - **`-1` (last layer)**: final transformer hidden state (post-`RMSNorm`), optimal for Qwen 3.5 (`94.9%–96.3%` cosine).
+  - **`-2` (penultimate layer)**: second-to-last hidden state (before final LM head norm), optimal for cross-family Gemma 4 (`90.45%` vs `87.8%` at `-1`).
+  - **Automatic in ComfyUI**: every `.safetensors` key stores its calibrated layer in its header, and `PlatosKeyPatchCLIP` configures the CLIP layer & norm automatically — you do **not** need `CLIPSetLastLayer`.
 
 ## Calibration & Conversion Guide (Create Your Own Key — Zero Gradients)
 
