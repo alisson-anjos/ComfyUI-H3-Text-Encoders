@@ -425,7 +425,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         best_key = None
         best_val = None
         for lam in lambdas:
-            cand = fit_ridge_key(x_train, y_train, lam=lam, metadata=dict(base_meta), save_dtype=save_dtype)
+            cand = fit_ridge_key(x_train, y_train, ridge_lambda=lam, metadata=dict(base_meta), save_dtype=save_dtype)
             vm = evaluate_platos_key(x_val, y_val, cand)
             print(f"[Plato's Key] Ridge lam={lam:g} -> val_cos={vm['cosine_mean']:.5f} val_R2={vm['r2']:.5f}")
             if best_val is None or vm["r2"] > best_val["r2"]:
