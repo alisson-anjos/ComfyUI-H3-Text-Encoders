@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-h3-text-encoders"
 description = "Zero-gradient Orthogonal Procrustes & Ridge (Plato's Key) text encoder adapters to use Qwen 3.5, Qwen 3.8, Gemma 4, and more with MiniMax-H3 (T2VA/Image, FL2VA, Ref2VA) in ComfyUI."
-version = "0.1.1"
+version = "0.1.2"
 license = {file = "LICENSE"}
 dependencies = [
     "safetensors>=0.4.5",
