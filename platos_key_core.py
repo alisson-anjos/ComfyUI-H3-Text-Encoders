@@ -126,6 +126,68 @@ def fit_platos_key(
     )
 
 
+def fit_ridge_key(
+    x_donor: torch.Tensor,
+    x_target: torch.Tensor,
+    ridge_lambda: float = 10.0,
+    norm_variance: bool = False,
+    metadata: Optional[Dict[str, Any]] = None,
+    save_dtype: torch.dtype = torch.float16,
+) -> PlatosKey:
+    """Solve closed-form Ridge regression with centering (zero gradient descent).
+
+    Minimizes || (X_donor - mu_d) @ W - (X_target - mu_t) ||_F^2 + lambda * ||W||_F^2.
+    Matches anisotropic per-channel outlier variances of MiniMax-H3's 5120-dim 32B space.
+    When `norm_variance=True` (`ridge_norm`), rescales `scale` so projected variance matches target variance.
+    """
+    if x_donor.ndim != 2 or x_target.ndim != 2:
+        raise ValueError("Expected 2D tensors [N, D].")
+    if x_donor.shape[0] != x_target.shape[0] or x_donor.shape[0] < 2:
+        raise ValueError("Mismatched or insufficient aligned samples.")
+
+    xd = x_donor.detach().to(device="cpu", dtype=torch.float64)
+    xt = x_target.detach().to(device="cpu", dtype=torch.float64)
+
+    donor_mean = xd.mean(dim=0)
+    target_mean = xt.mean(dim=0)
+    xd_c = xd - donor_mean
+    xt_c = xt - target_mean
+
+    d_in = xd_c.shape[1]
+    gram = xd_c.T @ xd_c
+    gram.diagonal().add_(float(ridge_lambda))
+    rhs = xd_c.T @ xt_c
+    W = torch.linalg.solve(gram, rhs)  # [d_donor, d_target]
+
+    scale_val = 1.0
+    if norm_variance:
+        pred_norm = (xd_c @ W).pow(2).sum()
+        tgt_norm = xt_c.pow(2).sum()
+        if pred_norm > 1e-12:
+            scale_val = float(torch.sqrt(tgt_norm / pred_norm).item())
+
+    str_meta: Dict[str, str] = {
+        "format": "platos_key_v1",
+        "method": "ridge_norm" if norm_variance else "ridge",
+        "ridge_lambda": str(ridge_lambda),
+        "d_donor": str(d_in),
+        "d_target": str(xt.shape[1]),
+        "num_samples": str(xd.shape[0]),
+        "scale": f"{scale_val:.8f}",
+    }
+    if metadata:
+        for k, v in metadata.items():
+            str_meta[str(k)] = v if isinstance(v, str) else json.dumps(v)
+
+    return PlatosKey(
+        R=W.to(dtype=save_dtype).contiguous(),
+        scale=torch.tensor([scale_val], dtype=save_dtype),
+        donor_mean=donor_mean.to(dtype=save_dtype).contiguous(),
+        target_mean=target_mean.to(dtype=save_dtype).contiguous(),
+        metadata=str_meta,
+    )
+
+
 def apply_platos_key(
     x: torch.Tensor,
     key: PlatosKey,

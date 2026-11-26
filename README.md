@@ -42,16 +42,58 @@ All adapters are solved in **closed form (zero gradient descent, zero LoRA)**:
 - **`Procrustes` (`*_pk_*.safetensors`)**: Pure Stanford *Plato's Key* — a strict orthogonal rotation ($R^\top R = I$) plus a single global scale. Preserves exact donor angles, with lower R² on outlier channels.
 - **`_norm` variants**: Rescale the projected vector to match `1.00×` target norm/variance, compensating for slight Ridge shrinkage (`~0.92×`).
 
-## Calibrating Your Own Plato's Key (Zero Gradients)
+## Calibration & Conversion Guide (Create Your Own Key — Zero Gradients)
 
+You can convert **any HuggingFace / ComfyUI-native text encoder** into a MiniMax-H3 adapter in minutes using [`calibrate_platos_key.py`](calibrate_platos_key.py) and [`platos_key_core.py`](platos_key_core.py) — no gradient training, no LoRA, and no backpropagation required.
+
+### 1. Install Calibration Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Run the Conversion Script
+
+- **Same-tokenizer family** (e.g., `Qwen 3.5 2B / 4B` → `Qwen 3.5 9B` / H3 32B): uses exact 1:1 `--align token`:
 ```bash
 python calibrate_platos_key.py \
   --donor Qwen/Qwen3.5-4B \
   --target Qwen/Qwen3.5-9B \
   --prompts prompts_corpus.json \
-  --align auto \
-  --output keys/qwen35_4b_to_h3_32b.safetensors
+  --align token \
+  --output keys/minimax_h3_32b_pk_qwen3.5_4b.safetensors
 ```
+
+- **Cross-tokenizer family** (e.g., `Gemma 4` → H3 32B): automatically aligns shared word spans via `--align word`:
+```bash
+python calibrate_platos_key.py \
+  --donor google/gemma-4-E4B-it \
+  --target Qwen/Qwen3.5-9B \
+  --prompts prompts_corpus.json \
+  --align word \
+  --output keys/minimax_h3_32b_pk_gemma4_e4b.safetensors
+```
+
+### 3. Closed-Form Ridge Solver (Python API)
+
+For maximum **Cosine** and **R²** on anisotropic target spaces (like MiniMax-H3's 5,120-dim 32B space), use `fit_ridge_key` from [`platos_key_core.py`](platos_key_core.py):
+
+```python
+from platos_key_core import fit_ridge_key, evaluate_platos_key, save_platos_key
+
+key = fit_ridge_key(
+    x_donor_train,          # [N, d_donor]
+    x_target_train,         # [N, 5120]
+    ridge_lambda=10.0,      # sweep [0.01, 0.1, 1.0, 10.0, 100.0] on held-out val split
+    norm_variance=False,    # True for ridge_norm
+)
+metrics = evaluate_platos_key(x_donor_val, x_target_val, key)
+save_platos_key(key, "ComfyUI/models/clip_projections/my_custom_key.safetensors")
+```
+
+### 4. Use in ComfyUI
+
+Copy the resulting `.safetensors` file into `ComfyUI/models/clip_projections/`, restart ComfyUI, and select it in **`Plato's Key Patch CLIP (H3 Plug & Play)`**.
 
 ## Calibration Metrics (`Alissonerdx/TE-PK-Minimax-H3`)
 
