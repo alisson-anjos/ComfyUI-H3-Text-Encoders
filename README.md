@@ -19,8 +19,9 @@ All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToV
 
 - [Watch / download side-by-side comparison video (`showcase/H3_PlatosKey_Ridge_Comparison.mp4`)](showcase/H3_PlatosKey_Ridge_Comparison.mp4)
 
-## Installation
+## Step-by-Step Setup (Where to Place Files)
 
+1. **Install this custom node**:
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/alisson-anjos/ComfyUI-H3-Text-Encoders.git
@@ -28,17 +29,23 @@ cd ComfyUI-H3-Text-Encoders
 pip install -r requirements.txt
 ```
 
-Restart ComfyUI.
+2. **Download a Text Encoder** (pick any supported model) and place it in **`ComfyUI/models/text_encoders/`**:
+   - **Qwen 3.5 (`0.8B / 2B / 4B / 9B`)**: [Comfy-Org/Qwen3.5](https://huggingface.co/Comfy-Org/Qwen3.5) → `ComfyUI/models/text_encoders/`
+   - **Gemma 4 (`E2B / E4B / 12B / 31B`)**: [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4) → `ComfyUI/models/text_encoders/`
+   - **Qwen 3.8 (`27B`)**: [Comfy-Org/Qwen3.8-27B](https://huggingface.co/Comfy-Org/Qwen3.8-27B) → `ComfyUI/models/text_encoders/`
 
-## Node Usage
+3. **Download the matching Plato's Key `.safetensors`** (prefer **`*_pk_ridge_*.safetensors`**) from [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) and place it in **`ComfyUI/models/clip_projections/`**:
+   ```text
+   ComfyUI/
+   └── models/
+       ├── text_encoders/
+       │   └── qwen3.5_9b_int8_convrot.safetensors        # (or 2B / 4B / Gemma 4)
+       └── clip_projections/
+           └── minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors
+   ```
 
-1. Load any supported donor text encoder (from [Comfy-Org/Qwen3.5](https://huggingface.co/Comfy-Org/Qwen3.5), [Comfy-Org/Qwen3.8-27B](https://huggingface.co/Comfy-Org/Qwen3.8-27B), [Comfy-Org/gemma-4](https://huggingface.co/Comfy-Org/gemma-4), etc.) using ComfyUI's native **`Load CLIP`** (`CLIPLoader`).
-2. Connect its `CLIP` output to **`Plato's Key Patch CLIP (H3 Plug & Play)`** (`PlatosKeyPatchCLIP`, under `conditioning/platos_key`):
-   - **`key_file`**: select any calibrated `.safetensors` key placed in `ComfyUI/models/clip_projections/` (or download from [`Alissonerdx/TE-PK-Minimax-H3`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3))
-   - **`strength`**: `1.0` *(default exact calibrated map; `< 1.0` softens prompt conditioning, `> 1.0` boosts prompt adherence)*
-   - **`key_path_override`** *(optional)*: absolute path to a `.safetensors` key stored outside `ComfyUI/models/clip_projections/` — leave empty when using `key_file`
-   - **`apply_to_pooled`** *(optional)*: also project `pooled_output` (used by SDXL/Flux-style models; keep **`False`** for MiniMax-H3)
-3. Connect the patched `CLIP` output directly to ComfyUI's official **`MiniMax H3 Reference to Video`** (`MiniMaxH3ReferenceToVideo`) or **`MiniMax H3 Image to Video`** (`MiniMaxH3ImageToVideo`) node — **no LoRA and no extra projection node required**.
+4. **Restart ComfyUI** and wire the workflow:
+   - **`Load CLIP`** (`CLIPLoader`, type `minimax` for Qwen 3.5) → **`Plato's Key Patch CLIP (H3 Plug & Play)`** (`key_file`: select the matching `.safetensors`, `strength`: `1.00`, `apply_to_pooled`: `False`) → **`MiniMax H3 Reference to Video`** or **`MiniMax H3 Image to Video`** — **no LoRA and no extra projection node required**.
 
 ### Additional Nodes Included
 
