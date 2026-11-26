@@ -288,31 +288,45 @@ class PlatosKeyPatchCLIP:
 
         patched = clip.clone() if hasattr(clip, "clone") else clip
 
+        in_proj = [False]
+
         orig_sched = getattr(patched, "encode_from_tokens_scheduled", None)
         if orig_sched is not None:
             def _wrapped_sched(*args, **kwargs):
-                cond = orig_sched(*args, **kwargs)
-                return _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                if in_proj[0]:
+                    return orig_sched(*args, **kwargs)
+                in_proj[0] = True
+                try:
+                    cond = orig_sched(*args, **kwargs)
+                    return _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                finally:
+                    in_proj[0] = False
             patched.encode_from_tokens_scheduled = _wrapped_sched
 
         orig_enc = getattr(patched, "encode_from_tokens", None)
         if orig_enc is not None:
             def _wrapped_enc(*args, **kwargs):
-                out = orig_enc(*args, **kwargs)
-                if isinstance(out, dict) and "cond" in out:
-                    out = dict(out)
-                    out["cond"] = apply_platos_key(out["cond"], key, strength=s_val)
-                    if p_val and isinstance(out.get("pooled_output"), torch.Tensor):
-                        out["pooled_output"] = apply_platos_key(out["pooled_output"], key, strength=s_val)
+                if in_proj[0]:
+                    return orig_enc(*args, **kwargs)
+                in_proj[0] = True
+                try:
+                    out = orig_enc(*args, **kwargs)
+                    if isinstance(out, dict) and "cond" in out:
+                        out = dict(out)
+                        out["cond"] = apply_platos_key(out["cond"], key, strength=s_val)
+                        if p_val and isinstance(out.get("pooled_output"), torch.Tensor):
+                            out["pooled_output"] = apply_platos_key(out["pooled_output"], key, strength=s_val)
+                        return out
+                    if isinstance(out, tuple) and len(out) >= 1 and isinstance(out[0], torch.Tensor):
+                        c0 = apply_platos_key(out[0], key, strength=s_val)
+                        if p_val and len(out) >= 2 and isinstance(out[1], torch.Tensor):
+                            return (c0, apply_platos_key(out[1], key, strength=s_val)) + out[2:]
+                        return (c0,) + out[1:]
+                    if isinstance(out, torch.Tensor):
+                        return apply_platos_key(out, key, strength=s_val)
                     return out
-                if isinstance(out, tuple) and len(out) >= 1 and isinstance(out[0], torch.Tensor):
-                    c0 = apply_platos_key(out[0], key, strength=s_val)
-                    if p_val and len(out) >= 2 and isinstance(out[1], torch.Tensor):
-                        return (c0, apply_platos_key(out[1], key, strength=s_val)) + out[2:]
-                    return (c0,) + out[1:]
-                if isinstance(out, torch.Tensor):
-                    return apply_platos_key(out, key, strength=s_val)
-                return out
+                finally:
+                    in_proj[0] = False
             patched.encode_from_tokens = _wrapped_enc
 
         return (patched,)
