@@ -1,0 +1,6 @@
+torch
+safetensors
+transformers
+accelerate
+sentencepiece
+huggingface_hub
