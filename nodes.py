@@ -17,6 +17,123 @@ except ImportError:
 
 LOCAL_KEYS_DIR = Path(__file__).resolve().parent / "keys"
 _KEY_CACHE: Dict[Tuple[str, float], PlatosKey] = {}
+_QWEN_TARGET_TOK: List[Any] = [None]
+
+
+def _get_qwen_target_tokenizer():
+    """Lazily load Qwen3-VL / Qwen2.5 fast tokenizer (0 VRAM, <1ms CPU) for Char-Overlap A@H alignment."""
+    if _QWEN_TARGET_TOK[0] is not None:
+        return _QWEN_TARGET_TOK[0]
+    from transformers import AutoTokenizer
+
+    # Priority 1: ComfyUI's built-in offline qwen25_tokenizer (identical BPE vocab/merges to Qwen3-VL-32B)
+    try:
+        import comfy.text_encoders as _cte  # type: ignore
+        q_dir = Path(_cte.__file__).resolve().parent / "qwen25_tokenizer"
+        if q_dir.is_dir() and (q_dir / "vocab.json").is_file():
+            _QWEN_TARGET_TOK[0] = AutoTokenizer.from_pretrained(str(q_dir), use_fast=True)
+            return _QWEN_TARGET_TOK[0]
+    except Exception:
+        pass
+
+    # Priority 2: HuggingFace lightweight tokenizer.json (~11 MB, cached locally)
+    _QWEN_TARGET_TOK[0] = AutoTokenizer.from_pretrained("Qwen/Qwen3-VL-32B-Instruct", use_fast=True)
+    return _QWEN_TARGET_TOK[0]
+
+
+def _char_overlap_matrix(
+    q_offsets: List[Tuple[int, int]],
+    d_offsets: List[Tuple[int, int]],
+) -> torch.Tensor:
+    """Build exact [T_q, T_d] row-stochastic character-overlap resampling matrix A."""
+    tq, td = len(q_offsets), len(d_offsets)
+    A = torch.zeros((tq, td), dtype=torch.float32)
+    j_start = 0
+    for i, (qs, qe) in enumerate(q_offsets):
+        if qe <= qs:
+            j = min(td - 1, max(0, int(round(i * (td - 1) / max(1, tq - 1)))))
+            A[i, j] = 1.0
+            continue
+        while j_start < td and d_offsets[j_start][1] <= qs:
+            j_start += 1
+        tot = 0.0
+        j = j_start
+        while j < td and d_offsets[j][0] < qe:
+            ds, de = d_offsets[j]
+            if de > ds:
+                ov = min(qe, de) - max(qs, ds)
+                if ov > 0:
+                    A[i, j] = float(ov)
+                    tot += float(ov)
+            j += 1
+        if tot > 0:
+            A[i] /= tot
+        else:
+            A[i, min(td - 1, max(0, j_start))] = 1.0
+    return A
+
+
+def _extract_donor_offsets(tok_obj: Any, text: str) -> Optional[List[Tuple[int, int]]]:
+    """Extract character offset_mapping from a ComfyUI CLIP tokenizer or HF fast tokenizer."""
+    if not text or tok_obj is None:
+        return None
+    candidates = [tok_obj]
+    clip_key = getattr(tok_obj, "clip", None)
+    if isinstance(clip_key, str) and hasattr(tok_obj, clip_key):
+        candidates.insert(0, getattr(tok_obj, clip_key))
+    for c in candidates:
+        inner = getattr(c, "tokenizer", c)
+        # ComfyUI _Gemma4Tokenizer wraps a Rust tokenizers.Tokenizer at inner.tokenizer
+        rust_tok = getattr(inner, "tokenizer", None)
+        if rust_tok is not None and hasattr(rust_tok, "encode"):
+            try:
+                enc = rust_tok.encode(text, add_special_tokens=False)
+                if hasattr(enc, "offsets") and enc.offsets:
+                    return [(int(s), int(e)) for s, e in enc.offsets]
+            except Exception:
+                pass
+        # Fast HuggingFace tokenizer
+        try:
+            enc = inner(text, return_offsets_mapping=True, add_special_tokens=False)
+            if isinstance(enc, dict) and "offset_mapping" in enc and enc["offset_mapping"]:
+                return [(int(s), int(e)) for s, e in enc["offset_mapping"]]
+        except Exception:
+            pass
+    return None
+
+
+def _resample_char_overlap_cond(
+    cond_list: List[List[Any]],
+    text: str,
+    donor_offsets: Optional[List[Tuple[int, int]]],
+) -> List[List[Any]]:
+    """Resample projected [B, T_donor, D] conditioning onto exact Qwen3-VL subword grid via A @ H."""
+    if not text or not donor_offsets:
+        return cond_list
+    try:
+        q_tok = _get_qwen_target_tokenizer()
+        q_enc = q_tok(text, return_offsets_mapping=True, add_special_tokens=False)
+        q_offsets = [(int(s), int(e)) for s, e in q_enc["offset_mapping"]]
+    except Exception as exc:
+        print(f"[Plato's Key] Char-Overlap tokenizer skipped: {exc}")
+        return cond_list
+    if not q_offsets:
+        return cond_list
+
+    A = _char_overlap_matrix(q_offsets, donor_offsets)  # [Tq, Td]
+    out: List[List[Any]] = []
+    for cond_tensor, meta in cond_list:
+        new_meta = dict(meta) if isinstance(meta, dict) else {}
+        if isinstance(cond_tensor, torch.Tensor) and cond_tensor.ndim == 3 and cond_tensor.shape[1] == len(donor_offsets):
+            A_dev = A.to(device=cond_tensor.device, dtype=cond_tensor.dtype)
+            cond_tensor = torch.matmul(A_dev, cond_tensor)  # [B, Tq, D]
+            tq = cond_tensor.shape[1]
+            if "attention_mask" in new_meta and isinstance(new_meta["attention_mask"], torch.Tensor):
+                new_meta["attention_mask"] = torch.ones((cond_tensor.shape[0], tq), dtype=new_meta["attention_mask"].dtype, device=new_meta["attention_mask"].device)
+            if "minimax_token_tags" in new_meta:
+                new_meta["minimax_token_tags"] = torch.ones((cond_tensor.shape[0], tq), dtype=torch.long)
+        out.append([cond_tensor, new_meta])
+    return out
 
 
 def _get_search_dirs() -> List[Path]:
@@ -360,6 +477,8 @@ class PlatosKeyPatchCLIP:
                         setattr(t, attr, val)
 
         in_proj = [False]
+        use_char_overlap = (key.metadata.get("alignment") == "char_overlap_qwen")
+        last_char_ctx: List[Any] = [None, None]  # [text, donor_offsets]
 
         orig_tok = getattr(patched, "tokenize", None)
         prepended_bos = [False]
@@ -371,6 +490,14 @@ class PlatosKeyPatchCLIP:
                 #    - KEEP `<bos>` (`start_token`) during the forward pass (Gemma 4 needs it as an
                 #      attention sink, matching v3 calibration), then strip token 0 after encoding!
                 tok_obj = getattr(patched, "tokenizer", None)
+                if use_char_overlap:
+                    prompt_txt = args[0] if (args and isinstance(args[0], str)) else kwargs.get("text", "")
+                    if isinstance(prompt_txt, str) and prompt_txt:
+                        last_char_ctx[0] = prompt_txt
+                        last_char_ctx[1] = _extract_donor_offsets(tok_obj, prompt_txt)
+                    else:
+                        last_char_ctx[0] = None
+                        last_char_ctx[1] = None
                 saved_tok_attrs = []
                 has_bos = False
                 if tok_obj is not None:
@@ -459,6 +586,8 @@ class PlatosKeyPatchCLIP:
                         cond = orig_sched(*args, **kwargs)
                     cond = _strip_bos_cond(cond)
                     mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                    if use_char_overlap and last_char_ctx[0] and last_char_ctx[1]:
+                        mapped = _resample_char_overlap_cond(mapped, last_char_ctx[0], last_char_ctx[1])
                     return _ensure_h3_meta(mapped)
                 finally:
                     in_proj[0] = False
@@ -576,14 +705,13 @@ class _HFPlatosKeyCLIP:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._backbone.to(device)
         try:
-            enc = self._tok(
-                [text],
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                return_special_tokens_mask=True,
-            )
+            use_char_ov = (self.key.metadata.get("alignment") == "char_overlap_qwen")
+            tok_kw = dict(return_tensors="pt", truncation=True, max_length=512, return_special_tokens_mask=True)
+            if use_char_ov:
+                tok_kw["return_offsets_mapping"] = True
+            enc = self._tok([text], **tok_kw)
             spec = enc.pop("special_tokens_mask")[0].bool()
+            raw_offs = enc.pop("offset_mapping")[0].tolist() if "offset_mapping" in enc else None
             ids = enc["input_ids"].to(device)
             mask = enc["attention_mask"].to(device)
             out = self._backbone(input_ids=ids, attention_mask=mask, output_hidden_states=True, use_cache=False)
@@ -606,7 +734,12 @@ class _HFPlatosKeyCLIP:
                 "pooled_output": torch.zeros((1, self.key.d_target), dtype=mapped.dtype),
                 "minimax_token_tags": torch.ones((1, mapped.shape[1]), dtype=torch.long),
             }
-            return [[mapped, meta]]
+            cond_out = [[mapped, meta]]
+            if use_char_ov and raw_offs is not None:
+                valid_list = valid.tolist()
+                donor_offs = [(int(s), int(e)) for (s, e), keep in zip(raw_offs, valid_list) if keep]
+                cond_out = _resample_char_overlap_cond(cond_out, text, donor_offs)
+            return cond_out
         finally:
             if self.offload_to_cpu and device.type == "cuda":
                 self._backbone.to("cpu")

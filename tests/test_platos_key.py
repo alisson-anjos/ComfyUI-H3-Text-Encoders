@@ -167,6 +167,29 @@ class TestPlatosKey(unittest.TestCase):
         self.assertEqual(x_va.shape, (10, 16))
         self.assertEqual(y_va.shape, (10, 32))
 
+    def test_char_overlap_matrix_and_commutativity(self) -> None:
+        import types
+        pkg = types.ModuleType("h3te_test_pkg")
+        pkg.__path__ = [str(PROJECT_ROOT)]
+        sys.modules["h3te_test_pkg"] = pkg
+        from h3te_test_pkg.nodes import _char_overlap_matrix
+
+        # Target splits "Hello world" as ["Hello", " world"]; donor splits as ["Hel", "lo ", "wor", "ld"]
+        q_offs = [(0, 5), (5, 11)]
+        d_offs = [(0, 3), (3, 6), (6, 9), (9, 11)]
+        A = _char_overlap_matrix(q_offs, d_offs)
+        self.assertEqual(tuple(A.shape), (2, 4))
+        self.assertTrue(torch.allclose(A.sum(dim=-1), torch.ones(2), atol=1e-6))
+        # Exact linear commutativity: A @ ((H - dm) @ W + tm) == ((A @ H) - dm) @ W + tm
+        g = torch.Generator().manual_seed(7)
+        H = torch.randn((4, 16), generator=g)
+        dm = torch.randn((16,), generator=g)
+        tm = torch.randn((32,), generator=g)
+        W = torch.randn((16, 32), generator=g)
+        lhs = A @ ((H - dm) @ W + tm)
+        rhs = ((A @ H) - dm) @ W + tm
+        self.assertTrue(torch.allclose(lhs, rhs, atol=1e-5))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
