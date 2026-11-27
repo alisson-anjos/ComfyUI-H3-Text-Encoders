@@ -1,32 +1,49 @@
 # ComfyUI-H3-Text-Encoders
 
 > [!IMPORTANT]
-> **NEW (`v5c` Word-Span Aligned + Layer-0 Multi-Layer Ridge) — ALL 6 cross-family keys upgraded (`Inkling-2-Mini: R² 0.927 / 96.23% cos`, `Gemma 4 31B: R² 0.923 / 95.97%`, `26B-A4B MoE: R² 0.913 / 95.43%`, `E4B: R² 0.901 / 94.86%`, `E2B: R² 0.894 / 94.46%`, `12B FIXED: R² 0.879 / 93.67%`)**, PLUS unified ComfyUI-native single-file **`Gemma 4 31B`** text encoders (`bf16`, `int8_convrot`, `w4a8`, `nvfp4`) and **`v3 Direct-32B Streaming Ridge`** for all **Qwen 3.5 & Qwen 3.8 27B** (`0.985–0.992 R²`)!
-> - **Recommendation:** use **`*_pk_ridge_*.safetensors`** for Qwen 3.5 / 3.8 and **`*_pk_ridge_4layer_*.safetensors`** for Gemma 4 & Inkling-2-Mini (`strength = 1.0`, same filenames — drop-in replacement!).
+> **NEW (`v0.2.0` + `charov` Exact Token-Level Alignment) — ALL 6 cross-family keys now have `*_pk_ridge_charov_*.safetensors` variants!**
+> - **What is `charov`?** Short for **Character-Overlap (`A @ H`)** — instead of pooling whole words (`4layer`), `charov` builds a deterministic subword overlap matrix `A` (`0 VRAM`, `<1ms` CPU) that maps donor subwords directly onto exact native `Qwen3-VL-32B` token positions (with exact `<bos>` parity and ComfyUI `fp8`/`int8`-robust Ridge calibration). See [`CHAR_OVERLAP_V6.md`](CHAR_OVERLAP_V6.md) for the full technical writeup.
+> - **Recommendation:**
+>   - **Qwen 3.5 / Qwen 3.8:** use **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`, 1:1 shared BPE tokenizer).
+>   - **Gemma 4 / Inkling-2-Mini:** choose **`*_pk_ridge_charov_*.safetensors`** (requires node **`v0.2.0+`**, big upgrade on spoken dialogue & multi-shot scenes) or keep **`*_pk_ridge_4layer_*.safetensors`** (word-span pooled, works on `v0.1.8+`, both stay live side-by-side at `strength = 1.0`).
 
 > [!WARNING]
-> **Upgrading from early releases (`< v0.1.8`)?** Please update your custom node (`cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` or update via ComfyUI Manager) and restart ComfyUI! Recent updates (`v0.1.5–v0.1.8`) added **critical fixes** (`options_default` tuple parity, Gemma 4 `<bos>` sink handling, **Multi-Layer `donor_layers`**, and `text_encoders/` dropdown scanning in `PlatosKeyHFTextEncoderLoader`). If you downloaded earlier `v4` or single-layer cross-family keys, re-download the updated `v5c` **`*_pk_ridge_4layer_*.safetensors`** keys for a massive `R²` jump (`~0.61 → 0.88–0.93`) and the **`Gemma 4 12B`** fix!
+> **Using `charov` keys requires `v0.2.0+`!** Update your custom node (`cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` or update via ComfyUI Manager) and restart ComfyUI. `v0.2.0` automatically detects `alignment="char_overlap_qwen"` in `.safetensors` metadata and applies exact `A @ H` resampling offline using ComfyUI's built-in Qwen tokenizer (`0 VRAM`, 100% backward-compatible with all `4layer` and Qwen keys).
 
 > [!NOTE]
-> **Spoken Dialogue / Speech Audio Note (Cross-Family Encoders):**
-> - **For 100%-crisp spoken dialogue & lip-sync:** use **Qwen 3.5 (`9B` / `2B` / `4B` / `0.8B`)** or **Qwen 3.8 `27B`** — they share the exact BPE tokenizer with native `Qwen3-VL-32B` and are calibrated **1:1 per token**, preserving crystal-clear English speech.
-> - **Cross-family encoders (`Gemma 4` / `Inkling-2-Mini`):** our new **`v5c`** keys use exact word-span alignment (`offset_mapping`), layer-0 lexical embeddings, and dialogue-enriched calibration — delivering **near pixel-identical visuals, Ref2VA identity, and ambient SFX** (`R² = 0.88–0.93`, `p10 = 87.5–92.5%`) and cleaner voice cadence than `v4`, though exact word-for-word spoken dialogue across different tokenizers is still best handled by same-tokenizer **Qwen 3.5 / 3.8**.
+> **Honest Note on Spoken Dialogue & Multi-Shot Scenes (Cross-Family Encoders):**
+> - **For 100%-crisp spoken dialogue, lip-sync & complex multi-shot choreography:** **Qwen 3.5 (`9B` / `2B` / `4B` / `0.8B`)** and **Qwen 3.8 `27B`** remain **#1**, because they share the exact BPE tokenizer 1:1 with native `Qwen3-VL-32B`.
+> - **Cross-family `charov` keys (`Gemma 4` / `Inkling-2-Mini`):** deliver a **major leap over `4layer`** on spoken dialogue intelligibility and multi-shot scene transitions (for example, `Gemma 4 E4B` jumped from `79.7%` to **`93.6%` live token-by-token cosine** in ComfyUI `fp8_scaled`, turning garbled audio into clear English sentences). However, a purely linear cross-tokenizer projection still does not 100% match native 32B on every complex multi-shot or fast-dialogue prompt — a lightweight, single-encoder residual refiner is in active R&D to close the remaining gap.
 
 Use modern ComfyUI-native text encoders (**Qwen 3.5 0.8B / 2B / 4B / 9B**, **Qwen 3.8 27B**, **Google Gemma 4**) — or **any HuggingFace LLM/VLM** (like **Inkling-2-Mini** or **Gemma 4 26B-A4B**) — as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP weights**.
 
-Powered by **Plato's Key** (*closed-form Ridge & Multi-Layer Ridge*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a compact `.safetensors` key (~20–157 MB) that projects a donor encoder's hidden states directly into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B`** geometric space:
+Powered by **Plato's Key** (*closed-form Ridge & Multi-Layer Ridge*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a compact `.safetensors` key (~20–275 MB) that projects a donor encoder's hidden states directly into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B`** geometric space:
 
 $$\hat{Y} = (X - \mu_{\text{donor}}) W + \mu_{\text{target}}, \qquad W = (X_c^\top X_c + \lambda I)^{-1} X_c^\top Y_c$$
 
 All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToVideo`, `SamplerCustomAdvanced`, `VAEDecode`) work out of the box.
 
+## How `charov` (Character-Overlap `A @ H`) Works
+
+Cross-family models tokenize the same prompt into completely different subword sequences (for example, Gemma 4 SentencePiece vs Qwen3 BPE). `4layer` keys align models at the **whole-word** level, which is great for visuals/SFX but blurs token-level timing needed for speech and multi-shot transitions.
+
+**`charov` keys** solve this with an exact, deterministic **character-overlap resampling matrix** $A \in \mathbb{R}^{T_{\text{qwen}} \times T_{\text{donor}}}$ (row-stochastic, $A \mathbf{1} = \mathbf{1}$). Because $A$ is linear and row-stochastic, it **commutes exactly** with the closed-form Ridge projection:
+
+$$A \cdot \big((H - \mu_{\text{donor}}) W + \mu_{\text{target}}\big) \equiv (A H - \mu_{\text{donor}}) W + \mu_{\text{target}}$$
+
+In ComfyUI `v0.2.0+`, the node automatically runs this resampling in `<1ms` on CPU (`0 VRAM`), giving every Qwen token slot the exact subword-aligned representation expected by the MiniMax-H3 DiT.
+
+![Plato's Key Char-Overlap Alignment Diagram](showcase/H3_PlatosKey_v6_CharOverlap_Diagram.png)
+
+![Plato's Key Char-Overlap Pipeline Flow](showcase/H3_PlatosKey_v6_Pipeline_Flow.png)
+
 ## Key Engineering Breakthroughs
 
 1. **Closed-Form Ridge >> Orthogonal Procrustes on MiniMax-H3:** MiniMax-H3's native 5,120-dim `Qwen3-VL-32B` space (layer 50, unnormalized) has strong anisotropic outlier channels. Rigid isotropic Procrustes stops at `R² ≈ 0.04`, whereas closed-form Ridge scales each channel independently, reaching **`R² = 0.990–0.992`** (**147× lower MSE**) on Qwen 3.5 & Qwen 3.8.
-2. **Word-Span Aligned Multi-Layer Plato's Key (`v5c` + Layer-0 Lexical Embedding):** Single-layer linear maps across different architectures/tokenizers (Google Gemma 4 / Inkling-2-Mini → Qwen3-VL-32B) hit a ceiling (~70% cos). Concatenating **5–6 transformer layers including `layer 0`** (e.g., `[0, -1, -2, -8, -16, -24]`) and aligning donor and target hidden states via **exact character-offset word spans (`offset_mapping`, >500k aligned words)** against exact ComfyUI `Qwen3-VL-32B` layer `49` (`hidden_states[50]`) jumps cross-family fidelity from `R² ≈ 0.61` to **`R² = 0.879–0.927`** (`Inkling-2-Mini: 96.23% cos / R² 0.927`, `Gemma 4 31B: 95.97% / R² 0.923`, `26B-A4B MoE: 95.43% / R² 0.913`, `E4B: 94.86% / R² 0.901`, `E2B: 94.46% / R² 0.894`, `12B FIXED: 93.67% / R² 0.879`) with **zero gradient training and zero extra forward passes** in ComfyUI!
-3. **Token-0 Attention Sink Filtering (`v4` Clean 20k):** Unnormalized `Qwen3-VL-32B` layer 50 puts a massive attention sink on token 0 (`rms ≈ 18.25, max > 3,000` vs `rms ≈ 3.42` for normal text). Dropping bin 0 during cross-family bin-pooled calibration eliminates a 33× Frobenius blow-up in `W`, cutting MSE by **42×** (`59.2 → 1.40`) and lifting `Gemma 4 E4B` to **`95.14%` cosine (`p10 = 87.91%`)**!
-4. **Exact ComfyUI CLIP Parity (`v0.1.5+`):** Automatically enforces `options_default` tuple override, layer & `RMSNorm` parity, `llama_template="{}"`, LTXV `min_length=1` padding strip, Gemma 4 `<bos>` attention-sink retention (stripping token 0 post-encode), and `minimax_token_tags`.
-5. **Universal HuggingFace Loader (`v0.1.6`):** **`Plato's Key Load Any HF Text Encoder (H3)`** loads *any* `transformers` LLM/VLM (even models without a native ComfyUI `CLIPLoader`, like `thinkingmachines/Inkling-2-Mini`) with automatic single- or multi-layer projection and automatic CPU offload to keep 100% of VRAM free for the H3 DiT.
+2. **Exact Token-Level `charov` (`A @ H`) + BOS Parity (`v0.2.0`):** Calibrating directly on exact individual Qwen3-VL-32B layer 49 tokens via character-overlap matrix `A @ H` — with explicit `<bos>` parity, ComfyUI-matched intermediate layers (replacing divergent `final_norm`), and quantization-robust FP64 Ridge solving — lifts live ComfyUI `fp8_scaled` token-by-token cosine on `Gemma 4 E4B` from `79.7%` to **`93.6%` (`p10 = 90.4%`)** with **zero gradient training**. *(Note: `charov` `R²` is measured on exact individual subword tokens, which is a much stricter metric than word-averaged `4layer` `R²`.)*
+3. **Word-Span Aligned Multi-Layer Plato's Key (`4layer`):** Concatenating 5–6 transformer layers including `layer 0` (`offset_mapping` word-span alignment) remains available alongside `charov` for users on `v0.1.8+` or comparing styles.
+4. **Token-0 Attention Sink Filtering & Exact ComfyUI CLIP Parity:** Automatically enforces `options_default` tuple override, layer & `RMSNorm` parity, `llama_template="{}"`, LTXV `min_length=1` padding strip, Gemma 4 `<bos>` attention-sink retention, and `minimax_token_tags`.
+5. **Universal HuggingFace Loader:** **`Plato's Key Load Any HF Text Encoder (H3)`** loads *any* `transformers` LLM/VLM (even models without a native ComfyUI `CLIPLoader`, like `thinkingmachines/Inkling-2-Mini`) with automatic single-layer, multi-layer, and `charov` support plus CPU offload.
 
 ## Visual Comparison (Zero-Gradient Ridge, No LoRA, No MLP)
 
@@ -52,30 +69,39 @@ All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToV
 
 ## Pre-Calibrated Weights & Direct Download Links
 
-All `.safetensors` Plato's Key adapters live in [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) (calibrated on 20,029 prompts directly to Native `Qwen3-VL-32B` Layer 50).
+All `.safetensors` Plato's Key adapters live in [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3).
 
-### Text Encoder Downloads & Matching Plato's Keys
+### Same-Tokenizer Encoders (Qwen 3.5 / Qwen 3.8 — 1:1 Token Ridge)
 
-| Encoder | ComfyUI Loader | Text Encoder Download (HuggingFace) | Method | **Val Metrics (`Cos` / `R²`)** | **Key File (`Alissonerdx/TE-PK-Minimax-H3`)** |
-|---|---|---|:---:|---:|---|
-| **Qwen 3.5 9B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_9b_int8_convrot.safetensors` `9.8 GB` / `bf16` `19.3 GB`) | Ridge (`-1`) | **93.05%** (`R² 0.9905`) | [`minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors) |
-| **Qwen 3.5 2B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_2b_bf16.safetensors` `4.6 GB`) | Ridge (`-1`) | **92.57%** (`R² 0.9916`) | [`minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors) |
-| **Qwen 3.5 4B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_4b_bf16.safetensors` `9.3 GB`) | Ridge (`-1`) | **91.82%** (`R² 0.9902`) | [`minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors) |
-| **Qwen 3.5 0.8B** | `PlatosKeyHFTextEncoderLoader` | [**`Qwen/Qwen3.5-0.8B`**](https://huggingface.co/Qwen/Qwen3.5-0.8B) | Ridge (`-1`) | **91.11%** (`R² 0.9901`) | [`minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors) |
-| **Qwen 3.8 27B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.8-27B`**](https://huggingface.co/Comfy-Org/Qwen3.8-27B/tree/main/text_encoders) (`qwen3.8_27b_w4a8.safetensors` `17.3 GB`) | Ridge (`-1`) | **89.94%** (`R² 0.9846`) | [`minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.8/minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors) |
-| **Inkling-2-Mini** 🏆⭐ | `PlatosKeyHFTextEncoderLoader` | [**`thinkingmachines/Inkling-2-Mini`**](https://huggingface.co/thinkingmachines/Inkling-2-Mini) | **6L v5c** | **96.23%** (`R² 0.9272`, `p10 92.5%`) | [`minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors) |
-| **Gemma 4 31B** 🏆 | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Alissonerdx/TE-PK-Minimax-H3/text_encoders`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/tree/main/text_encoders) ([`nvfp4` `19.1 GB`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/text_encoders/gemma4_31b_it_nvfp4.safetensors) / [`w4a8` `19.1 GB`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/text_encoders/gemma4_31b_it_w4a8.safetensors) / [`int8_convrot` `31.9 GB`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/text_encoders/gemma4_31b_it_int8_convrot.safetensors) / [`bf16` `62.6 GB`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/text_encoders/gemma4_31b_it_bf16.safetensors)) | **5L v5c** | **95.97%** (`R² 0.9229`, `p10 92.0%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_31b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_31b.safetensors) |
-| **Gemma 4 26B-A4B (MoE)** ⭐ | `PlatosKeyHFTextEncoderLoader` | [**`google/gemma-4-26B-A4B-it`**](https://huggingface.co/google/gemma-4-26B-A4B-it) | **6L v5c** | **95.43%** (`R² 0.9128`, `p10 90.9%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_26b_a4b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_26b_a4b.safetensors) |
-| **Gemma 4 E4B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_e4b_it_int8_convrot.safetensors` `8.1 GB` / `fp8` `9.1 GB` / `bf16` `16.0 GB`) | **6L v5c** | **94.86%** (`R² 0.9012`, `p10 90.0%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors) |
-| **Gemma 4 E2B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_e2b_it_int8_convrot.safetensors` `5.2 GB` / `bf16` `10.3 GB`) | **6L v5c** | **94.46%** (`R² 0.8936`, `p10 89.4%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors) |
-| **Gemma 4 12B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_12b_int8_convrot.safetensors` `12.1 GB`) | **5L v5c** | **93.67%** (`R² 0.8790`, `p10 87.5%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors) |
+| Encoder | ComfyUI Loader | Text Encoder Download (HuggingFace) | **Val Metrics (`Cos` / `R²`)** | **Key File (`Alissonerdx/TE-PK-Minimax-H3`)** |
+|---|---|---|---:|---|
+| **Qwen 3.5 9B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_9b_int8_convrot.safetensors` `9.8 GB` / `bf16` `19.3 GB`) | **93.05%** (`R² 0.9905`) | [`minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors) |
+| **Qwen 3.5 2B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_2b_bf16.safetensors` `4.6 GB`) | **92.57%** (`R² 0.9916`) | [`minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_2b.safetensors) |
+| **Qwen 3.5 4B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.5`**](https://huggingface.co/Comfy-Org/Qwen3.5/tree/main/text_encoders) (`qwen3.5_4b_bf16.safetensors` `9.3 GB`) | **91.82%** (`R² 0.9902`) | [`minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_4b.safetensors) |
+| **Qwen 3.5 0.8B** | `PlatosKeyHFTextEncoderLoader` | [**`Qwen/Qwen3.5-0.8B`**](https://huggingface.co/Qwen/Qwen3.5-0.8B) | **91.11%** (`R² 0.9901`) | [`minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors) |
+| **Qwen 3.8 27B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.8-27B`**](https://huggingface.co/Comfy-Org/Qwen3.8-27B/tree/main/text_encoders) (`qwen3.8_27b_w4a8.safetensors` `17.3 GB`) | **89.94%** (`R² 0.9846`) | [`minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.8/minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors) |
+
+### Cross-Family Encoders (`charov` Exact Token-Level vs `4layer` Word-Span)
+
+> **Which file should I download?**
+> - **`*_pk_ridge_charov_*.safetensors`** *(Recommended, requires node `v0.2.0+`)*: Exact token-level **Character-Overlap (`A @ H`)** alignment. Much better token timing for spoken dialogue and multi-shot prompts.
+> - **`*_pk_ridge_4layer_*.safetensors`** *(Legacy/Word-Span, works on `v0.1.8+`)*: Word-span pooled alignment. Preserved side-by-side if you prefer its look or haven't updated yet.
+
+| Encoder | ComfyUI Loader | Text Encoder Download (HuggingFace) | **`charov` Key (`v0.2.0+`, Exact Token `Cos` / `R²`)** | **`4layer` Key (Word-Span `Cos` / `R²`)** |
+|---|---|---|---|---|
+| **Gemma 4 31B** 🏆 | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Alissonerdx/TE-PK-Minimax-H3/text_encoders`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/tree/main/text_encoders) (`nvfp4` / `w4a8` `19.1 GB`, `int8` `31.9 GB`, `bf16` `62.6 GB`) | [`charov_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_31b.safetensors) (**95.90%** / `R² 0.831`, `p10 90.8%`) | [`4layer_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_31b.safetensors) (`95.97%` / `R² 0.923`) |
+| **Gemma 4 E4B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`int8` `8.1 GB` / `fp8` `9.1 GB` / `bf16` `16.0 GB`) | [`charov_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e4b.safetensors) (**95.59%** / `R² 0.816`, `p10 90.3%`) | [`4layer_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors) (`94.86%` / `R² 0.901`) |
+| **Gemma 4 26B-A4B (MoE)** ⭐ | `PlatosKeyHFTextEncoderLoader` | [**`google/gemma-4-26B-A4B-it`**](https://huggingface.co/google/gemma-4-26B-A4B-it) | [`charov_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_26b_a4b.safetensors) (**95.32%** / `R² 0.808`, `p10 89.3%`) | [`4layer_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_26b_a4b.safetensors) (`95.43%` / `R² 0.913`) |
+| **Gemma 4 12B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_12b_int8_convrot.safetensors` `12.1 GB`) | [`charov_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_12b.safetensors) (**95.26%** / `R² 0.805`, `p10 89.1%`) | [`4layer_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors) (`93.67%` / `R² 0.879`) |
+| **Gemma 4 E2B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`int8` `5.2 GB` / `bf16` `10.3 GB`) | [`charov_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e2b.safetensors) (**94.77%** / `R² 0.781`, `p10 88.5%`) | [`4layer_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors) (`94.46%` / `R² 0.894`) |
+| **Inkling-2-Mini** | `PlatosKeyHFTextEncoderLoader` | [**`thinkingmachines/Inkling-2-Mini`**](https://huggingface.co/thinkingmachines/Inkling-2-Mini) | [`charov_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_charov_inkling2_mini.safetensors) (**93.52%** / `R² 0.731`, `p10 84.7%`) | [`4layer_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors) (`96.23%` / `R² 0.927`) |
 
 > [!TIP]
-> **Plug & Play recommendation:** For native ComfyUI `CLIPLoader` (single `.safetensors` in `ComfyUI/models/text_encoders/`), start with **`Qwen 3.5 9B`** (best all-around + crystal-clear spoken dialogue), **`Gemma 4 E4B`** (`8.1 GB int8` / `9.1 GB fp8`, `R² 0.901`), **`Gemma 4 E2B`** (`5.2 GB int8`, `R² 0.894`), or our unified **`Gemma 4 31B`** (`19.1 GB nvfp4/w4a8`, `R² 0.923`). For HuggingFace repos (`thinkingmachines/Inkling-2-Mini` — **#1 cross-family `R² 0.927`!** — or `google/gemma-4-26B-A4B-it`), use **`Plato's Key Load Any HF Text Encoder (H3)`** directly.
+> **Plug & Play recommendation:** Start with **`Qwen 3.5 9B`** (best all-around + #1 for exact spoken dialogue & multi-shot), or try **`Gemma 4 E4B charov`** (`8.1 GB int8` / `9.1 GB fp8`) or **`Gemma 4 31B charov`** (`19.1 GB nvfp4/w4a8`) for strong cross-family visuals & improved speech!
 
 ## Step-by-Step Setup (Where to Place Files)
 
-1. **Install this custom node**:
+1. **Install or update this custom node (`v0.2.0+` required for `charov`)**:
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/alisson-anjos/ComfyUI-H3-Text-Encoders.git
@@ -83,7 +109,7 @@ cd ComfyUI-H3-Text-Encoders
 pip install -r requirements.txt
 ```
 
-2. **Download a Text Encoder** from the table above and place single-file `.safetensors` models in **`ComfyUI/models/text_encoders/`** (or skip manual downloads for any HuggingFace repo by using **`Plato's Key Load Any HF Text Encoder (H3)`**).
+2. **Download a Text Encoder** from the tables above and place single-file `.safetensors` models in **`ComfyUI/models/text_encoders/`** (or skip manual downloads for any HuggingFace repo by using **`Plato's Key Load Any HF Text Encoder (H3)`**).
 
 3. **Download the matching `.safetensors` key** from [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) and place it in **`ComfyUI/models/clip_projections/`**:
 ```text
@@ -93,7 +119,7 @@ ComfyUI/models/
 │   └── gemma4_e4b_it_fp8_scaled.safetensors
 └── clip_projections/
     ├── minimax_h3_32b_pk_ridge_qwen3.5_9b.safetensors
-    └── minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors
+    └── minimax_h3_32b_pk_ridge_charov_gemma4_e4b.safetensors
 ```
 
 4. **Restart ComfyUI** and wire:
@@ -102,8 +128,8 @@ ComfyUI/models/
 
 ### Included ComfyUI Nodes (`conditioning/platos_key`)
 
-- **`Plato's Key Patch CLIP (H3 Plug & Play)`**: Drop-in wrapper for native ComfyUI `CLIPLoader` (auto layer, multi-layer `donor_layers`, `RMSNorm`, `<bos>`, and `minimax_token_tags` parity).
-- **`Plato's Key Load Any HF Text Encoder (H3)`**: Loads any `transformers` model from HuggingFace or disk, applies single- or multi-layer Plato's Key, and auto-offloads to CPU after encoding.
+- **`Plato's Key Patch CLIP (H3 Plug & Play)`**: Drop-in wrapper for native ComfyUI `CLIPLoader` (auto layer, multi-layer `donor_layers`, **`charov` `A @ H` resampling**, `RMSNorm`, `<bos>`, and `minimax_token_tags` parity).
+- **`Plato's Key Load Any HF Text Encoder (H3)`**: Loads any `transformers` model from HuggingFace or disk, applies single-layer, multi-layer, or **`charov`** Plato's Key, and auto-offloads to CPU after encoding.
 - **`Plato's Key Apply (Procrustes)`**: Projects an existing `CONDITIONING` tensor directly.
 - **`Plato's Key CLIP Text Encode`**: One-step text encode + Plato's Key projection.
 
