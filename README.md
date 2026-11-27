@@ -4,6 +4,9 @@
 > **NEW (`v0.1.8`) — ALL 6 `v4 Clean Sink-Free Multi-Layer (4-Layer Concat) Ridge` cross-family keys are LIVE (`Gemma 4 31B: 95.78% cos`, `26B-A4B MoE: 95.24%`, `E4B: 95.14%`, `E2B: 94.93%`, `Inkling-2-Mini: 94.80%`, `12B: 93.42%`)**, PLUS unified ComfyUI-native single-file **`Gemma 4 31B`** text encoders (`bf16`, `int8_convrot`, `w4a8`, `nvfp4`) and **`v3 Direct-32B Streaming Ridge`** for all **Qwen 3.5 & Qwen 3.8 27B** (`0.985–0.992 R²`)!
 > - **Recommendation:** use **`*_pk_ridge_*.safetensors`** for Qwen 3.5 / 3.8 and **`*_pk_ridge_4layer_*.safetensors`** for Gemma 4 & Inkling-2-Mini (`strength = 1.0`).
 
+> [!WARNING]
+> **Upgrading from early releases (`< v0.1.8`)?** Please update your custom node (`cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` or update via ComfyUI Manager) and restart ComfyUI! Recent updates (`v0.1.5–v0.1.8`) added **critical fixes** (`options_default` tuple parity, Gemma 4 `<bos>` sink handling, **Multi-Layer `donor_layers`**, and `text_encoders/` dropdown scanning in `PlatosKeyHFTextEncoderLoader`). If you downloaded early single-layer Gemma 4 keys, replace them with the new **`*_pk_ridge_4layer_*.safetensors`** keys!
+
 Use modern ComfyUI-native text encoders (**Qwen 3.5 0.8B / 2B / 4B / 9B**, **Qwen 3.8 27B**, **Google Gemma 4**) — or **any HuggingFace LLM/VLM** (like **Inkling-2-Mini** or **Gemma 4 26B-A4B**) — as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP weights**.
 
 Powered by **Plato's Key** (*closed-form Ridge & Multi-Layer Ridge*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a compact `.safetensors` key (~20–157 MB) that projects a donor encoder's hidden states directly into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B`** geometric space:
