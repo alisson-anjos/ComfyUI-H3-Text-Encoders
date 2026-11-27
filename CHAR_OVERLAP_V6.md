@@ -1,5 +1,7 @@
 # Plato's Key `v6` — Exact Cross-Tokenizer Speech & Conditioning Alignment (`Char-Overlap A@H` + `BOS-Exact`)
 
+![Plato's Key v6 Character-Overlap Diagram](showcase/H3_PlatosKey_v6_CharOverlap_Diagram.png)
+
 This technical note documents the research and engineering breakthroughs behind **`ComfyUI-H3-Text-Encoders v0.2.0`** and our **`v6` cross-family Plato's Key adapters**, which unlock **intelligible spoken English dialogue on Google Gemma 4 and Inkling-2-Mini inside MiniMax-H3** using **a single text encoder, zero gradient training, zero LoRA, and zero external MLP weights**.
 
 ---
