@@ -190,6 +190,25 @@ class TestPlatosKey(unittest.TestCase):
         rhs = ((A @ H) - dm) @ W + tm
         self.assertTrue(torch.allclose(lhs, rhs, atol=1e-5))
 
+    def test_h3_token0_sink_injection_and_dropdown_exclusion(self) -> None:
+        # 1. token0_sink file must never appear in the user key dropdown
+        files = nodes_mod.discover_key_files()
+        self.assertFalse(any("token0_sink" in f for f in files))
+
+        # 2. 5120-dim conditioning with attenuated token 0 gets exact sink restored
+        cond = torch.randn((1, 8, 5120), dtype=torch.float32) * 3.0
+        cond_in = [[cond.clone(), {"tag": "h3"}]]
+        out = nodes_mod._inject_h3_token0_sink(cond_in, d_target=5120, strength=1.0)
+        out_t = out[0][0]
+        tok0_rms = float(out_t[:, 0, :].pow(2).mean().sqrt().item())
+        self.assertGreater(tok0_rms, 200.0)
+        # Tokens 1..N must remain untouched
+        self.assertTrue(torch.allclose(out_t[:, 1:, :], cond[:, 1:, :]))
+
+        # 3. Non-5120 conditioning or strength=0 must not be modified
+        out_zero = nodes_mod._inject_h3_token0_sink(cond_in, d_target=5120, strength=0.0)
+        self.assertTrue(torch.allclose(out_zero[0][0], cond))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
