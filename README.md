@@ -1,14 +1,14 @@
 # ComfyUI-H3-Text-Encoders
 
 > [!IMPORTANT]
-> **NEW (`v0.2.0` + `charov` Exact Token-Level Alignment) — ALL 6 cross-family keys now have `*_pk_ridge_charov_*.safetensors` variants!**
-> - **What is `charov`?** Short for **Character-Overlap (`A @ H`)** — instead of pooling whole words (`4layer`), `charov` builds a deterministic subword overlap matrix `A` (`0 VRAM`, `<1ms` CPU) that maps donor subwords directly onto exact native `Qwen3-VL-32B` token positions (with exact `<bos>` parity and ComfyUI `fp8`/`int8`-robust Ridge calibration). See [`CHAR_OVERLAP_V6.md`](CHAR_OVERLAP_V6.md) for the full technical writeup.
+> **NEW (`v0.3.0` — `pk_lora`: Plato's Key + Forced Qwen-Segmentation + Bundled TE LoRA) — 1 Single `.safetensors`, 1 Single Text Encoder, ZERO DiT Changes!**
+> - **Major Breakthrough for Cross-Family Speech & Multi-Shot:** Pure linear cross-tokenizer keys (`charov` / `4layer`) hit a ceiling on complex spoken dialogue & multi-shot scenes (`cos ≈ 0.90`). Our new **`*_pk_lora_*.safetensors`** unified adapters combine **Forced Qwen-Token Segmentation (94.74% exact 1:1 token match)** + **Multi-Layer Plato's Key** + a **lightweight Rank-32 Text Encoder LoRA** (all bundled in **1 single `.safetensors` file**, works on `bf16` / `fp8` / `int8` / `nvfp4`, `0` permanent VRAM) — jumping live 160-token 3-shot cosine on `Gemma 4 E4B` from **`0.901 → 0.976` (`+30.9 pts` on worst token)** and unlocking Native-32B-matching 3-shot visuals & clean spoken dialogue!
 > - **Recommendation:**
->   - **Qwen 3.5 / Qwen 3.8:** use **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`, 1:1 shared BPE tokenizer).
->   - **Gemma 4 / Inkling-2-Mini:** choose **`*_pk_ridge_charov_*.safetensors`** (requires node **`v0.2.0+`**, big upgrade on spoken dialogue & multi-shot scenes) or keep **`*_pk_ridge_4layer_*.safetensors`** (word-span pooled, works on `v0.1.8+`, both stay live side-by-side at `strength = 1.0`).
+>   - **Qwen 3.5 / Qwen 3.8:** use **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`, 1:1 shared BPE tokenizer, zero training).
+>   - **Gemma 4 / Inkling-2-Mini:** use **`*_pk_lora_*.safetensors`** *(Best overall — speech + multi-shot, requires node **`v0.3.0+`**)*, or **`*_pk_ridge_charov_*.safetensors`** *(100% zero-training linear, `v0.2.0+`)*, or **`*_pk_ridge_4layer_*.safetensors`** *(word-span pooled, `v0.1.8+`)*. All variants stay live side-by-side at `strength = 1.0`.
 
 > [!WARNING]
-> **Using `charov` keys requires `v0.2.0+`!** Update your custom node (`cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` or update via ComfyUI Manager) and restart ComfyUI. `v0.2.0` automatically detects `alignment="char_overlap_qwen"` in `.safetensors` metadata and applies exact `A @ H` resampling offline using ComfyUI's built-in Qwen tokenizer (`0 VRAM`, 100% backward-compatible with all `4layer` and Qwen keys).
+> **Update your custom node (`v0.3.0+` for `pk_lora`, `v0.2.0+` for `charov`)!** Run `cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` (or update via ComfyUI Manager) and restart ComfyUI. `v0.3.0` automatically detects `alignment="forced_qwen_seg"` and `has_te_lora="true"` inside a single `.safetensors` file and applies temporary forward hooks on any quantization (`bf16`, `fp8_scaled`, `int8_convrot`, `nvfp4`) with zero VRAM leak.
 
 > [!NOTE]
 > **Honest Note on Spoken Dialogue & Multi-Shot Scenes (Cross-Family Encoders):**
@@ -23,15 +23,25 @@ $$\hat{Y} = (X - \mu_{\text{donor}}) W + \mu_{\text{target}}, \qquad W = (X_c^\t
 
 All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToVideo`, `SamplerCustomAdvanced`, `VAEDecode`) work out of the box.
 
-## How `charov` (Character-Overlap `A @ H`) Works
+## How `pk_lora` (`v0.3.0`) & `charov` (`v0.2.0`) Work
 
-Cross-family models tokenize the same prompt into completely different subword sequences (for example, Gemma 4 SentencePiece vs Qwen3 BPE). `4layer` keys align models at the **whole-word** level, which is great for visuals/SFX but blurs token-level timing needed for speech and multi-shot transitions.
+Cross-family models tokenize the same prompt into completely different subword sequences (for example, Gemma 4 SentencePiece vs Qwen3 BPE).
 
-**`charov` keys** solve this with an exact, deterministic **character-overlap resampling matrix** $A \in \mathbb{R}^{T_{\text{qwen}} \times T_{\text{donor}}}$ (row-stochastic, $A \mathbf{1} = \mathbf{1}$). Because $A$ is linear and row-stochastic, it **commutes exactly** with the closed-form Ridge projection:
+- **`pk_lora` (`v0.3.0+` — Recommended for Speech & Multi-Shot):** First tokenizes the prompt with Qwen3 BPE, then encodes each Qwen subword separately with the donor tokenizer (**Forced Qwen-Token Segmentation** — **94.74% exact 1:1 match** on Gemma 4, zero cross-boundary bleed), applies a bundled **Rank-32 Text Encoder LoRA** via zero-leak forward hooks (works on `bf16` / `fp8` / `int8` / `nvfp4`), and projects 6 concatenated layers via **Multi-Layer Plato's Key** trained jointly with MiniMax-H3's `condition_proj` loss (`5×` weight on spoken dialogue quotes). Everything ships inside **1 unified `.safetensors` file** — still **1 single Text Encoder** and **zero DiT changes**!
+
+![Plato's Key + Forced Qwen Segmentation + Bundled TE LoRA Architecture](showcase/H3_PlatosKey_v030_PK_LoRA_Diagram.png)
+
+### 3-Way Multi-Shot + Spoken Dialogue Showcase (`Native 32B` vs `charov` Linear vs `PK + LoRA`)
+
+[![MiniMax-H3 3-Way PK+LoRA Multi-Shot + Speech Showcase](showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4)
+
+- [Watch / download the 3-way Multi-Shot + Speech comparison (`showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4`)](showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4) — **fixed seed, 1 single Text Encoder, zero DiT changes**, showing **`Native Qwen3-VL-32B`** | **`Gemma 4 E4B charov (Linear, cos 0.901)`** | **`Gemma 4 E4B PK + LoRA (cos 0.976, AUDIO)`** executing all 3 shots (sunlit café + spoken dialogue → grab jacket & walk to exit → golden cobblestone street).
+
+- **`charov` (`v0.2.0+` — 100% Zero-Training Linear):** Uses a deterministic **character-overlap resampling matrix** $A \in \mathbb{R}^{T_{\text{qwen}} \times T_{\text{donor}}}$ (row-stochastic, $A \mathbf{1} = \mathbf{1}$) that **commutes exactly** with closed-form Ridge:
 
 $$A \cdot \big((H - \mu_{\text{donor}}) W + \mu_{\text{target}}\big) \equiv (A H - \mu_{\text{donor}}) W + \mu_{\text{target}}$$
 
-In ComfyUI `v0.2.0+`, the node automatically runs this resampling in `<1ms` on CPU (`0 VRAM`), giving every Qwen token slot the exact subword-aligned representation expected by the MiniMax-H3 DiT.
+In ComfyUI `v0.2.0+`, the node runs this resampling in `<1ms` on CPU (`0 VRAM`). See [`CHAR_OVERLAP_V6.md`](CHAR_OVERLAP_V6.md) for details.
 
 ![Plato's Key Char-Overlap Alignment Diagram](showcase/H3_PlatosKey_v6_CharOverlap_Diagram.png)
 
@@ -81,20 +91,21 @@ All `.safetensors` Plato's Key adapters live in [**`Alissonerdx/TE-PK-Minimax-H3
 | **Qwen 3.5 0.8B** | `PlatosKeyHFTextEncoderLoader` | [**`Qwen/Qwen3.5-0.8B`**](https://huggingface.co/Qwen/Qwen3.5-0.8B) | **91.11%** (`R² 0.9901`) | [`minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.5/minimax_h3_32b_pk_ridge_qwen3.5_0.8b.safetensors) |
 | **Qwen 3.8 27B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/Qwen3.8-27B`**](https://huggingface.co/Comfy-Org/Qwen3.8-27B/tree/main/text_encoders) (`qwen3.8_27b_w4a8.safetensors` `17.3 GB`) | **89.94%** (`R² 0.9846`) | [`minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/qwen3.8/minimax_h3_32b_pk_ridge_qwen3.8_27b.safetensors) |
 
-### Cross-Family Encoders (`charov` Exact Token-Level vs `4layer` Word-Span)
+### Cross-Family Encoders (`pk_lora` Unified vs `charov` Zero-Training vs `4layer` Legacy)
 
 > **Which file should I download?**
-> - **`*_pk_ridge_charov_*.safetensors`** *(Recommended, requires node `v0.2.0+`)*: Exact token-level **Character-Overlap (`A @ H`)** alignment. Much better token timing for spoken dialogue and multi-shot prompts.
-> - **`*_pk_ridge_4layer_*.safetensors`** *(Legacy/Word-Span, works on `v0.1.8+`)*: Word-span pooled alignment. Preserved side-by-side if you prefer its look or haven't updated yet.
+> - **`*_pk_lora_*.safetensors`** *(Best for Speech & Multi-Shot, requires node `v0.3.0+`)*: 1 unified `.safetensors` bundling **Forced Qwen-Segmentation (94.74% 1:1)** + **Multi-Layer Plato's Key** + **Rank-32 TE LoRA**.
+> - **`*_pk_ridge_charov_*.safetensors`** *(100% Zero-Training, requires node `v0.2.0+`)*: Exact token-level **Character-Overlap (`A @ H`)** linear Ridge.
+> - **`*_pk_ridge_4layer_*.safetensors`** *(Legacy Word-Span, works on `v0.1.8+`)*: Word-span pooled linear Ridge.
 
-| Encoder | ComfyUI Loader | Text Encoder Download (HuggingFace) | **`charov` Key (`v0.2.0+`, Exact Token `Cos` / `R²`)** | **`4layer` Key (Word-Span `Cos` / `R²`)** |
+| Encoder | ComfyUI Loader | **`pk_lora` Unified (`v0.3.0+`, Best Speech + Multi-Shot)** | **`charov` Zero-Train (`v0.2.0+`)** | **`4layer` Legacy** |
 |---|---|---|---|---|
-| **Gemma 4 31B** 🏆 | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Alissonerdx/TE-PK-Minimax-H3/text_encoders`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/tree/main/text_encoders) (`nvfp4` / `w4a8` `19.1 GB`, `int8` `31.9 GB`, `bf16` `62.6 GB`) | [`charov_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_31b.safetensors) (**95.90%** / `R² 0.831`, `p10 90.8%`) | [`4layer_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_31b.safetensors) (`95.97%` / `R² 0.923`) |
-| **Gemma 4 E4B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`int8` `8.1 GB` / `fp8` `9.1 GB` / `bf16` `16.0 GB`) | [`charov_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e4b.safetensors) (**95.59%** / `R² 0.816`, `p10 90.3%`) | [`4layer_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors) (`94.86%` / `R² 0.901`) |
-| **Gemma 4 26B-A4B (MoE)** ⭐ | `PlatosKeyHFTextEncoderLoader` | [**`google/gemma-4-26B-A4B-it`**](https://huggingface.co/google/gemma-4-26B-A4B-it) | [`charov_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_26b_a4b.safetensors) (**95.32%** / `R² 0.808`, `p10 89.3%`) | [`4layer_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_26b_a4b.safetensors) (`95.43%` / `R² 0.913`) |
-| **Gemma 4 12B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_12b_int8_convrot.safetensors` `12.1 GB`) | [`charov_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_12b.safetensors) (**95.26%** / `R² 0.805`, `p10 89.1%`) | [`4layer_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors) (`93.67%` / `R² 0.879`) |
-| **Gemma 4 E2B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`int8` `5.2 GB` / `bf16` `10.3 GB`) | [`charov_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e2b.safetensors) (**94.77%** / `R² 0.781`, `p10 88.5%`) | [`4layer_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors) (`94.46%` / `R² 0.894`) |
-| **Inkling-2-Mini** | `PlatosKeyHFTextEncoderLoader` | [**`thinkingmachines/Inkling-2-Mini`**](https://huggingface.co/thinkingmachines/Inkling-2-Mini) | [`charov_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_charov_inkling2_mini.safetensors) (**93.52%** / `R² 0.731`, `p10 84.7%`) | [`4layer_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors) (`96.23%` / `R² 0.927`) |
+| **Gemma 4 E4B** 🏆⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` ([`Comfy-Org/gemma-4`](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders)) | [`pk_lora_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_lora_gemma4_e4b.safetensors) (**Live cos 97.6%**, `H3 R² 0.894`, `quotes cos 95.2%`) | [`charov_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e4b.safetensors) (`95.59%` / `R² 0.816`) | [`4layer_gemma4_e4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e4b.safetensors) (`94.86%`) |
+| **Gemma 4 E2B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` ([`Comfy-Org/gemma-4`](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders)) | *Training now — rolling out shortly!* | [`charov_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_e2b.safetensors) (`94.77%` / `R² 0.781`) | [`4layer_gemma4_e2b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors) (`94.46%`) |
+| **Gemma 4 12B** | `CLIPLoader` + `PlatosKeyPatchCLIP` ([`Comfy-Org/gemma-4`](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders)) | *In queue — rolling out shortly!* | [`charov_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_12b.safetensors) (`95.26%` / `R² 0.805`) | [`4layer_gemma4_12b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors) (`93.67%`) |
+| **Inkling-2-Mini** | `PlatosKeyHFTextEncoderLoader` ([`thinkingmachines/Inkling-2-Mini`](https://huggingface.co/thinkingmachines/Inkling-2-Mini)) | *In queue — rolling out shortly!* | [`charov_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_charov_inkling2_mini.safetensors) (`93.52%` / `R² 0.731`) | [`4layer_inkling2_mini`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors) (`96.23%`) |
+| **Gemma 4 26B-A4B (MoE)** | `PlatosKeyHFTextEncoderLoader` ([`google/gemma-4-26B-A4B-it`](https://huggingface.co/google/gemma-4-26B-A4B-it)) | *In queue — rolling out shortly!* | [`charov_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_26b_a4b.safetensors) (`95.32%` / `R² 0.808`) | [`4layer_gemma4_26b_a4b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_26b_a4b.safetensors) (`95.43%`) |
+| **Gemma 4 31B** 🏆 | `CLIPLoader` + `PlatosKeyPatchCLIP` ([`text_encoders/`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/tree/main/text_encoders)) | *In queue — rolling out shortly!* | [`charov_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_charov_gemma4_31b.safetensors) (`95.90%` / `R² 0.831`) | [`4layer_gemma4_31b`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_31b.safetensors) (`95.97%`) |
 
 > [!TIP]
 > **Plug & Play recommendation:** Start with **`Qwen 3.5 9B`** (best all-around + #1 for exact spoken dialogue & multi-shot), or try **`Gemma 4 E4B charov`** (`8.1 GB int8` / `9.1 GB fp8`) or **`Gemma 4 31B charov`** (`19.1 GB nvfp4/w4a8`) for strong cross-family visuals & improved speech!
