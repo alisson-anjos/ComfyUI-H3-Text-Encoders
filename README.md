@@ -32,12 +32,6 @@ Cross-family models tokenize the same prompt into completely different subword s
 
 ![Plato's Key + Forced Qwen Segmentation + Bundled TE LoRA Architecture](showcase/H3_PlatosKey_v030_PK_LoRA_Diagram.png)
 
-### 3-Way Multi-Shot + Spoken Dialogue Showcase (`Native 32B` vs `charov` Linear vs `PK + LoRA`)
-
-[![MiniMax-H3 3-Way PK+LoRA Multi-Shot + Speech Showcase](showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4)
-
-- [Watch / download the 3-way Multi-Shot + Speech comparison (`showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4`)](showcase/H3_PlatosKey_PK_LoRA_3Way_Showcase.mp4) — **fixed seed, 1 single Text Encoder, zero DiT changes**, showing **`Native Qwen3-VL-32B`** | **`Gemma 4 E4B charov (Linear, cos 0.901)`** | **`Gemma 4 E4B PK + LoRA (cos 0.976, AUDIO)`** executing all 3 shots (sunlit café + spoken dialogue → grab jacket & walk to exit → golden cobblestone street).
-
 - **`charov` (`v0.2.0+` — 100% Zero-Training Linear):** Uses a deterministic **character-overlap resampling matrix** $A \in \mathbb{R}^{T_{\text{qwen}} \times T_{\text{donor}}}$ (row-stochastic, $A \mathbf{1} = \mathbf{1}$) that **commutes exactly** with closed-form Ridge:
 
 $$A \cdot \big((H - \mu_{\text{donor}}) W + \mu_{\text{target}}\big) \equiv (A H - \mu_{\text{donor}}) W + \mu_{\text{target}}$$
