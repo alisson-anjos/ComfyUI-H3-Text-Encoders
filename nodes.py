@@ -624,19 +624,105 @@ class _HFPlatosKeyCLIP:
         return c
 
 
+_HF_PRESETS = [
+    "hf:thinkingmachines/Inkling-2-Mini",
+    "hf:google/gemma-4-26B-A4B-it",
+    "hf:google/gemma-4-31B-it",
+    "hf:google/gemma-4-E4B-it",
+    "hf:google/gemma-4-E2B-it",
+    "hf:Qwen/Qwen3.5-0.8B",
+]
+
+
+def _text_encoder_roots() -> List[Path]:
+    roots: List[Path] = []
+    if folder_paths is not None:
+        for key in ("text_encoders", "clip", "LLM"):
+            try:
+                for p in folder_paths.get_folder_paths(key):
+                    pp = Path(p)
+                    if pp.is_dir() and pp not in roots:
+                        roots.append(pp)
+            except Exception:
+                pass
+    if not roots:
+        fallback = Path.cwd() / "models" / "text_encoders"
+        if fallback.is_dir():
+            roots.append(fallback)
+    return roots
+
+
+def discover_hf_text_encoders() -> List[str]:
+    """Return every folder & model file inside ComfyUI's text_encoders directories + HF presets."""
+    found: List[str] = []
+    seen = set()
+    for root in _text_encoder_roots():
+        try:
+            for item in sorted(root.iterdir()):
+                if item.name.startswith("."):
+                    continue
+                if item.is_dir():
+                    # Direct HF folder (has config.json or safetensors)
+                    if (item / "config.json").is_file() or any(item.glob("*.safetensors")):
+                        rel = item.name
+                        if rel not in seen:
+                            seen.add(rel)
+                            found.append(rel)
+                    else:
+                        # One level deeper (e.g. google/gemma-4-31B-it or thinkingmachines/Inkling-2-Mini)
+                        for sub in sorted(item.iterdir()):
+                            if sub.is_dir() and ((sub / "config.json").is_file() or any(sub.glob("*.safetensors"))):
+                                rel = f"{item.name}/{sub.name}"
+                                if rel not in seen:
+                                    seen.add(rel)
+                                    found.append(rel)
+                            elif sub.is_file() and sub.suffix.lower() in (".safetensors", ".bin", ".pt"):
+                                rel = f"{item.name}/{sub.name}"
+                                if rel not in seen:
+                                    seen.add(rel)
+                                    found.append(rel)
+                elif item.is_file() and item.suffix.lower() in (".safetensors", ".bin", ".pt"):
+                    rel = item.name
+                    if rel not in seen:
+                        seen.add(rel)
+                        found.append(rel)
+        except Exception:
+            pass
+    for preset in _HF_PRESETS:
+        if preset not in seen:
+            seen.add(preset)
+            found.append(preset)
+    return found or list(_HF_PRESETS)
+
+
+def resolve_hf_text_encoder(selection: str, hf_repo_id_override: str = "") -> str:
+    """Resolve a dropdown selection from ComfyUI's text_encoders folder or HF repo preset."""
+    if hf_repo_id_override and hf_repo_id_override.strip():
+        return hf_repo_id_override.strip()
+    sel = (selection or "").strip()
+    if sel.startswith("hf:"):
+        return sel[3:].strip()
+    for root in _text_encoder_roots():
+        cand = root / sel
+        if cand.exists():
+            # If user picked a single .safetensors file inside a HF folder containing config.json, pass its folder
+            if cand.is_file() and (cand.parent / "config.json").is_file():
+                return str(cand.parent)
+            return str(cand)
+    return sel
+
+
 class PlatosKeyHFTextEncoderLoader:
-    """Load ANY HuggingFace text encoder via `transformers` and wrap it with a calibrated Plato's Key."""
+    """Load ANY text encoder from ComfyUI's `text_encoders` dropdown or HuggingFace via `transformers` and wrap it with a calibrated Plato's Key."""
 
     @classmethod
     def INPUT_TYPES(cls) -> Dict[str, Any]:
         return {
             "required": {
-                "model_id": (
-                    "STRING",
+                "text_encoder": (
+                    discover_hf_text_encoders(),
                     {
-                        "default": "google/gemma-4-E4B-it",
-                        "multiline": False,
-                        "tooltip": "HuggingFace repo ID or local folder path (works for ANY transformers LLM/VLM/embedding model).",
+                        "tooltip": "Select a model/folder from ComfyUI/models/text_encoders/ or an auto-download HuggingFace preset (hf:...).",
                     },
                 ),
                 "key_file": (discover_key_files(),),
@@ -651,6 +737,14 @@ class PlatosKeyHFTextEncoderLoader:
                 ),
             },
             "optional": {
+                "hf_repo_id_override": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": "Optional: type any custom HuggingFace repo ID not listed in the dropdown.",
+                    },
+                ),
                 "key_path_override": ("STRING", {"default": "", "multiline": False}),
             },
         }
@@ -662,17 +756,19 @@ class PlatosKeyHFTextEncoderLoader:
 
     def load(
         self,
-        model_id: str,
+        text_encoder: str,
         key_file: str,
         strength: float = 1.0,
         dtype: str = "bf16",
         offload_to_cpu: bool = True,
+        hf_repo_id_override: str = "",
         key_path_override: str = "",
     ) -> Tuple[Any]:
+        resolved_model = resolve_hf_text_encoder(text_encoder, hf_repo_id_override)
         key_path = resolve_key_path(key_file, key_path_override)
         key = get_cached_key(key_path)
         clip = _HFPlatosKeyCLIP(
-            model_id=model_id.strip(),
+            model_id=resolved_model,
             key=key,
             strength=float(strength),
             dtype_str=dtype,
