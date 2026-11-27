@@ -7,6 +7,11 @@
 > [!WARNING]
 > **Upgrading from early releases (`< v0.1.8`)?** Please update your custom node (`cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` or update via ComfyUI Manager) and restart ComfyUI! Recent updates (`v0.1.5–v0.1.8`) added **critical fixes** (`options_default` tuple parity, Gemma 4 `<bos>` sink handling, **Multi-Layer `donor_layers`**, and `text_encoders/` dropdown scanning in `PlatosKeyHFTextEncoderLoader`). If you downloaded early single-layer Gemma 4 keys, replace them with the new **`*_pk_ridge_4layer_*.safetensors`** keys!
 
+> [!NOTE]
+> **Spoken Dialogue / Speech Audio Note (Cross-Family Encoders):**
+> - **For crisp spoken dialogue & lip-sync:** use **Qwen 3.5 (`9B` / `2B` / `4B` / `0.8B`)** or **Qwen 3.8 `27B`** — they share the exact BPE tokenizer with native `Qwen3-VL-32B` and are calibrated **1:1 per token**, preserving crystal-clear English speech.
+> - **Cross-family encoders (`Gemma 4` / `Inkling-2-Mini`):** v4 keys excel at visuals, motion, Ref2VA identity, and ambient SFX, but spoken dialogue can currently sound garbled/gibberish due to coarse 12-bin pooling across different tokenizers. **We are actively working on a `v5` exact word-span (`offset_mapping`) + dialogue-enriched calibration to fix spoken dialogue on Gemma 4!**
+
 Use modern ComfyUI-native text encoders (**Qwen 3.5 0.8B / 2B / 4B / 9B**, **Qwen 3.8 27B**, **Google Gemma 4**) — or **any HuggingFace LLM/VLM** (like **Inkling-2-Mini** or **Gemma 4 26B-A4B**) — as a conditioning encoder for **MiniMax-H3** (**T2VA / Image-to-Video**, **FL2VA**, and **Ref2VA**) in ComfyUI — **zero gradient training, zero LoRA, and zero external MLP weights**.
 
 Powered by **Plato's Key** (*closed-form Ridge & Multi-Layer Ridge*, inspired by Stanford Hazy Research's [Plato's Key](https://hazyresearch.stanford.edu/blog/2026-11-25-platos-key)), each adapter is a compact `.safetensors` key (~20–157 MB) that projects a donor encoder's hidden states directly into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B`** geometric space:
