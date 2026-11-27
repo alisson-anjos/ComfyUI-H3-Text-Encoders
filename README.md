@@ -31,6 +31,12 @@ All downstream MiniMax-H3 nodes (`MiniMaxH3ReferenceToVideo`, `MiniMaxH3ImageToV
 
 ![4-Way Comparison including Google Gemma 4 E4B 4-Layer](showcase/H3_PlatosKey_4Way_With_Gemma4_4Layer.jpg)
 
+### Multi-Layer 4-Way Video Showcase (Gemma 4 Before/After + Parisian Café Ref2VA + Swiss Alps Train T2VA)
+
+[![Multi-Layer 4-Way Showcase Video](showcase/H3_PlatosKey_MultiLayer_4Way_Showcase_thumb.jpg)](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/showcase/H3_PlatosKey_MultiLayer_4Way_Showcase.mp4)
+
+- [Watch / download the 3-segment 4-way comparison video (`showcase/H3_PlatosKey_MultiLayer_4Way_Showcase.mp4`)](showcase/H3_PlatosKey_MultiLayer_4Way_Showcase.mp4) — featuring **Gemma 4 E4B 1-Layer vs 4-Layer Clean**, **Parisian Café Ref2VA (`Native 32B` | `Qwen 3.5 9B` | `Gemma 4 E4B 4L` | `Gemma 4 E2B 4L`)**, and **Swiss Alps Steam Train Pure T2VA (`Native 32B` | `Qwen 3.5 9B` | `Qwen 3.5 2B` | `Gemma 4 E4B 4L`)** at `strength = 1.0`.
+
 ## Pre-Calibrated Weights & Direct Download Links
 
 All `.safetensors` Plato's Key adapters live in [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3) (calibrated on 20,029 prompts directly to Native `Qwen3-VL-32B` Layer 50).
@@ -49,7 +55,7 @@ All `.safetensors` Plato's Key adapters live in [**`Alissonerdx/TE-PK-Minimax-H3
 | **Gemma 4 E2B** ⭐ | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_e2b_it_int8_convrot.safetensors` `5.2 GB` / `bf16` `10.3 GB`) | **4L Ridge** | **94.93%** (`p10 87.5%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_e2b.safetensors) |
 | **Gemma 4 12B** | `CLIPLoader` + `PlatosKeyPatchCLIP` | [**`Comfy-Org/gemma-4`**](https://huggingface.co/Comfy-Org/gemma-4/tree/main/text_encoders) (`gemma4_12b_int8_convrot.safetensors` `12.1 GB` / `bf16` `24.0 GB`) | **4L Ridge** | **93.42%** (`p10 82.8%`) | [`minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_4layer_gemma4_12b.safetensors) |
 | **Gemma 4 31B** | `PlatosKeyHFTextEncoderLoader` | [**`google/gemma-4-31B-it`**](https://huggingface.co/google/gemma-4-31B-it) | Ridge (`-2` / 4L soon) | **75.83%** (1L) | [`minimax_h3_32b_pk_ridge_gemma4_31b_layer-2.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/gemma4/minimax_h3_32b_pk_ridge_gemma4_31b_layer-2.safetensors) |
-| **Inkling-2-Mini** | `PlatosKeyHFTextEncoderLoader` | [**`thinkingmachines/Inkling-2-Mini`**](https://huggingface.co/thinkingmachines/Inkling-2-Mini) | **4L Ridge** | *calibrating* | *uploading soon* |
+| **Inkling-2-Mini** | `PlatosKeyHFTextEncoderLoader` | [**`thinkingmachines/Inkling-2-Mini`**](https://huggingface.co/thinkingmachines/Inkling-2-Mini) | **4L Ridge** | **94.80%** (`p10 88.4%`) | [`minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors`](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3/resolve/main/inkling2/minimax_h3_32b_pk_ridge_4layer_inkling2_mini.safetensors) |
 
 > [!TIP]
 > **Plug & Play recommendation:** For native ComfyUI `CLIPLoader` (single `.safetensors` in `ComfyUI/models/text_encoders/`), start with **`Gemma 4 E4B`** (`8.1 GB int8` or `9.1 GB fp8`, **95.14% cos**), **`Gemma 4 E2B`** (`5.2 GB int8`, **94.93% cos**), or **`Qwen 3.5 9B / 2B`**. For sharded HuggingFace models (`google/gemma-4-31B-it`, `google/gemma-4-26B-A4B-it`, `thinkingmachines/Inkling-2-Mini`), use our **`Plato's Key Load Any HF Text Encoder (H3)`** node directly.
