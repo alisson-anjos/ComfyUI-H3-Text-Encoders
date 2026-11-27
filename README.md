@@ -1,16 +1,19 @@
 # ComfyUI-H3-Text-Encoders
 
+> [!IMPORTANT]
+> **NEW (`v0.3.2` — `pk_lora` Unified Adapters for Cross-Family Speech & Multi-Shot) — 1 Single `.safetensors`, 1 Single Text Encoder, ZERO DiT Changes!**
+> - **Spoken Dialogue & Multi-Shot Solved for Cross-Family Encoders (`Gemma 4` / `Inkling-2-Mini`):** Pure linear cross-tokenizer keys (`charov` / `4layer`) transfer visuals well, but struggle with crisp spoken audio & multi-shot scenes (`cos ≈ 0.90`). Our new **`*_pk_lora_*.safetensors`** unified adapters bundle **Forced Qwen-Token Segmentation (94.74% 1:1)** + **Multi-Layer Plato's Key** + a **Rank-32 Text Encoder LoRA** inside **1 single `.safetensors` file** (works on `bf16` / `fp8` / `int8` / `nvfp4`, zero permanent VRAM) — jumping `Gemma 4 E4B` live 3-shot cosine from **`0.901 → 0.976`** with clean spoken dialogue!
+> - **Start-of-Video Audio (`inject_token0_sink` toggle in `v0.3.2+`):** Includes an optional 20 KB `Qwen3-VL-32B` Token-0 Attention Sink toggle (`PlatosKeyPatchCLIP` / `PlatosKeyHFTextEncoderLoader`) that restores crisp first-word speech (fixes clipped/unfinished opening words on both Qwen 3.5 and Gemma 4).
+> - **Which Key Should I Download?**
+>   - **Qwen 3.5 / Qwen 3.8 (#1 Overall — Same BPE Tokenizer, Zero Training):** **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`).
+>   - **Gemma 4 / Inkling-2-Mini (Cross-Family):** **`*_pk_lora_*.safetensors`** *(Best — clean speech + multi-shot, `v0.3.2+`)* · **`*_pk_ridge_charov_*.safetensors`** *(zero-training linear, `v0.2.0+`)* · **`*_pk_ridge_4layer_*.safetensors`** *(legacy word-span, `v0.1.8+`)*.
+
+> [!WARNING]
+> **Update your custom node (`v0.3.2+` required for `pk_lora`)!** Run `cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` (or update via ComfyUI Manager) and restart ComfyUI.
+
 Drop-in **Plato's Key** text encoder adapters to run modern LLMs/VLMs (**Qwen 3.5**, **Qwen 3.8**, **Google Gemma 4**, **Inkling-2-Mini**, or any HuggingFace `transformers` model) as a conditioning encoder for **MiniMax-H3** (**T2VA**, **FL2VA**, **Ref2VA**) in ComfyUI — **1 single Text Encoder, 1 `.safetensors` key, zero DiT changes**.
 
 All pre-calibrated `.safetensors` keys live on HuggingFace: [**`Alissonerdx/TE-PK-Minimax-H3`**](https://huggingface.co/Alissonerdx/TE-PK-Minimax-H3).
-
-## Which Key Should I Use?
-
-- **Qwen 3.5 / Qwen 3.8 (Recommended #1 — Same Tokenizer, Zero Training):** Download **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`).
-- **Gemma 4 / Inkling-2-Mini (Cross-Family):**
-  - **`*_pk_lora_*.safetensors`** *(Best for speech & multi-shot, requires node **`v0.3.2+`**)* — 1 unified file bundling Forced Qwen-Segmentation + Multi-Layer Plato's Key + Rank-32 TE LoRA (works on `bf16` / `fp8` / `int8` / `nvfp4`).
-  - **`*_pk_ridge_charov_*.safetensors`** *(100% zero-training linear, `v0.2.0+`)* — token-level character-overlap alignment.
-  - **`*_pk_ridge_4layer_*.safetensors`** *(Legacy word-span linear, `v0.1.8+`)*.
 
 ![Plato's Key + Forced Qwen Segmentation + Bundled TE LoRA Architecture](showcase/H3_PlatosKey_v030_PK_LoRA_Diagram.png)
 
