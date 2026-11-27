@@ -22,9 +22,9 @@ Cross-family text encoders (such as **Google Gemma 4** SentencePiece or **Inklin
    - Hidden states from 5–6 intermediate layers (including `layer 0` lexical embeddings) are concatenated and projected into MiniMax-H3's native **5,120-dim `Qwen3-VL-32B` (layer 49)** space.
    - Stage 1 initializes the projection with exact closed-form ForcedSeg-20k Ridge; Stage 2 jointly optimizes the LoRA + projection with MiniMax-H3's `condition_proj` functional loss and `5×` weighting on quoted spoken dialogue.
 
-## Experimental `inject_token0_sink` Toggle (`v0.3.2+`)
+## Automatic `inject_token0_sink` Toggle (`v0.3.3+`, ON by default)
 
-Both `PlatosKeyPatchCLIP` and `PlatosKeyHFTextEncoderLoader` include an optional **`inject_token0_sink`** boolean (default **`False`**):
-- Native `Qwen3-VL-32B` layer 49 places a large, near-constant Attention Sink vector on Token 0 (`rms ≈ 224`).
-- Keep **`False`** (default) for exact Native-32B visual composition alignment in Ref2VA workflows.
-- Toggle **`True`** only if you want to experiment with clipped first-word audio on T2VA prompts.
+Both `PlatosKeyPatchCLIP` and `PlatosKeyHFTextEncoderLoader` include **`inject_token0_sink`** (default **`True`**):
+- Native `Qwen3-VL-32B` layer 49 places a large, near-constant Attention Sink vector on Token 0 (`rms ≈ 224`, `cos = 0.99998` across 8,000 prompts).
+- Restoring this 20 KB vector in `<0.01 ms` (matching MiniMax's own `TextConnector.sink_embedding`) eliminates clipped/unfinished opening words at the start of generated videos across **all** H3 keys (`Qwen 3.5`, `Qwen 3.8`, `Gemma 4`, `Inkling-2-Mini`).
+- Can be toggled **`False`** anytime if you prefer legacy un-injected behavior.

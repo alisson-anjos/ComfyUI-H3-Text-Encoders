@@ -574,8 +574,8 @@ class PlatosKeyPatchCLIP:
                 "inject_token0_sink": (
                     "BOOLEAN",
                     {
-                        "default": False,
-                        "tooltip": "Experimental (OFF by default): Restore Qwen3-VL-32B's Token-0 Attention Sink vector. Can fix clipped start-of-video speech on some prompts, but may shift visual composition on Ref2VA.",
+                        "default": True,
+                        "tooltip": "Restore Qwen3-VL-32B's universal 20 KB Token-0 Attention Sink vector (ON by default). Eliminates clipped/unfinished first-word speech at the start of generated videos across all H3 keys.",
                     },
                 ),
             },
@@ -593,7 +593,7 @@ class PlatosKeyPatchCLIP:
         strength: float = 1.0,
         key_path_override: str = "",
         apply_to_pooled: bool = False,
-        inject_token0_sink: bool = False,
+        inject_token0_sink: bool = True,
     ) -> Tuple[Any]:
         key_path = resolve_key_path(key_file, key_path_override)
         key = get_cached_key(key_path)
@@ -886,7 +886,7 @@ class _HFPlatosKeyCLIP:
         trust_remote_code: bool = True,
         te_lora_pairs: Optional[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = None,
         te_lora_scale: float = 1.0,
-        inject_token0_sink: bool = False,
+        inject_token0_sink: bool = True,
     ):
         self.model_id = model_id
         self.key = key
@@ -1168,8 +1168,8 @@ class PlatosKeyHFTextEncoderLoader:
                 "inject_token0_sink": (
                     "BOOLEAN",
                     {
-                        "default": False,
-                        "tooltip": "Experimental (OFF by default): Restore Qwen3-VL-32B's Token-0 Attention Sink vector. Can fix clipped start-of-video speech on some prompts, but may shift visual composition on Ref2VA.",
+                        "default": True,
+                        "tooltip": "Restore Qwen3-VL-32B's universal 20 KB Token-0 Attention Sink vector (ON by default). Eliminates clipped/unfinished first-word speech at the start of generated videos across all H3 keys.",
                     },
                 ),
             },
@@ -1189,7 +1189,7 @@ class PlatosKeyHFTextEncoderLoader:
         offload_to_cpu: bool = True,
         hf_repo_id_override: str = "",
         key_path_override: str = "",
-        inject_token0_sink: bool = False,
+        inject_token0_sink: bool = True,
     ) -> Tuple[Any]:
         resolved_model = resolve_hf_text_encoder(text_encoder, hf_repo_id_override)
         key_path = resolve_key_path(key_file, key_path_override)
