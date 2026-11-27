@@ -1,12 +1,13 @@
 # ComfyUI-H3-Text-Encoders
 
 > [!IMPORTANT]
-> **NEW (`v0.3.3` — `pk_lora` Unified Adapters + Automatic Token-0 Audio Fix) — 1 Single `.safetensors`, 1 Single Text Encoder, ZERO DiT Changes!**
-> - **Spoken Dialogue & Multi-Shot Solved for Cross-Family Encoders (`Gemma 4` / `Inkling-2-Mini`):** Pure linear cross-tokenizer keys (`charov` / `4layer`) transfer visuals well, but struggle with crisp spoken audio & multi-shot scenes (`cos ≈ 0.90`). Our new **`*_pk_lora_*.safetensors`** unified adapters bundle **Forced Qwen-Token Segmentation (94.74% 1:1)** + **Multi-Layer Plato's Key** + a **Rank-32 Text Encoder LoRA** inside **1 single `.safetensors` file** (works on `bf16` / `fp8` / `int8` / `nvfp4`, zero permanent VRAM) — jumping `Gemma 4 E4B` live 3-shot cosine from **`0.901 → 0.976`** with clean spoken dialogue!
-> - **Automatic Start-of-Video Speech Fix (`inject_token0_sink = True` by default in `v0.3.3+`):** Restores `Qwen3-VL-32B`'s universal 20 KB Token-0 Attention Sink vector in `<0.01 ms` (zero training, works on ALL existing Qwen 3.5 / Qwen 3.8 / Gemma 4 / Inkling-2-Mini keys!) to eliminate clipped/unfinished opening words at the start of generated videos.
-> - **Which Key Should I Download?**
->   - **Qwen 3.5 / Qwen 3.8 (#1 Overall — Same BPE Tokenizer, Zero Training):** **`*_pk_ridge_*.safetensors`** (`R² 0.985–0.992`).
->   - **Gemma 4 / Inkling-2-Mini (Cross-Family):** **`*_pk_lora_*.safetensors`** *(Best — clean speech + multi-shot, `v0.3.3+`)* · **`*_pk_ridge_charov_*.safetensors`** *(zero-training linear, `v0.2.0+`)* · **`*_pk_ridge_4layer_*.safetensors`** *(legacy word-span, `v0.1.8+`)*.
+> **How This Project Evolved (`v0.3.3` — Pure Plato's Key → `pk_lora`: Plato's Key + Trained Projection & TE LoRA):**
+> - **Where we started:** This project began with **pure zero-training Plato's Key** (closed-form linear Ridge), which transfers visual conditioning remarkably well and works great out of the box on same-tokenizer encoders (`Qwen 3.5` / `Qwen 3.8`).
+> - **Why we added `pk_lora` (for Audio & Cross-Family Tokens):** On cross-family encoders like **Google Gemma 4** and **Inkling-2-Mini**, different subword tokenizers (SentencePiece vs Qwen3 BPE) made purely linear keys struggle with crisp spoken dialogue and multi-shot transitions (`cos ≈ 0.90`). To achieve much higher **audio & spoken dialogue quality**, we combined **Plato's Key** with **Forced Qwen-Token Segmentation** and a **lightweight trained Projection + Rank-32 Text Encoder LoRA** — all bundled inside **1 single `.safetensors` file** (`*_pk_lora_*.safetensors`, works on `bf16` / `fp8` / `int8` / `nvfp4`, **zero DiT changes**), jumping `Gemma 4 E4B` live 3-shot cosine from **`0.901 → 0.976`**.
+> - **Automatic Start-of-Video Speech Fix (`inject_token0_sink = True` in `v0.3.3+`):** Restores `Qwen3-VL-32B`'s universal 20 KB Token-0 Attention Sink vector in `<0.01 ms` (zero training, works on ALL keys) to eliminate clipped/unfinished opening words at the start of generated videos.
+> - **All Variants Stay Available Side-by-Side:**
+>   - **Qwen 3.5 / Qwen 3.8:** **`*_pk_ridge_*.safetensors`** *(pure zero-training Plato's Key, `R² 0.985–0.992`)* — `pk_lora` audio-upgraded versions rolling out next!
+>   - **Gemma 4 / Inkling-2-Mini:** **`*_pk_lora_*.safetensors`** *(Best — clean speech + multi-shot, `v0.3.3+`)* · **`*_pk_ridge_charov_*.safetensors`** *(pure zero-training linear, `v0.2.0+`)* · **`*_pk_ridge_4layer_*.safetensors`** *(legacy word-span, `v0.1.8+`)*.
 
 > [!WARNING]
 > **Update your custom node (`v0.3.3+` recommended for ALL users!)** Run `cd ComfyUI/custom_nodes/ComfyUI-H3-Text-Encoders && git pull` (or update via ComfyUI Manager) and restart ComfyUI.
