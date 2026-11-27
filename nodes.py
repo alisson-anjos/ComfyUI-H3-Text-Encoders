@@ -471,7 +471,6 @@ class PlatosKeyApply:
             strength=float(strength),
             apply_to_pooled=bool(apply_to_pooled),
         )
-        mapped = _inject_h3_token0_sink(mapped, key.d_target, strength=float(strength))
         return (mapped,)
 
 
@@ -531,7 +530,6 @@ class PlatosKeyCLIPTextEncode:
             strength=float(strength),
             apply_to_pooled=bool(apply_to_pooled),
         )
-        mapped = _inject_h3_token0_sink(mapped, key.d_target, strength=float(strength))
         return (mapped,)
 
 
@@ -573,6 +571,13 @@ class PlatosKeyPatchCLIP:
                         "tooltip": "Also project pooled_output (for SDXL/Flux-style models). Keep False for MiniMax-H3.",
                     },
                 ),
+                "inject_token0_sink": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Experimental (OFF by default): Restore Qwen3-VL-32B's Token-0 Attention Sink vector. Can fix clipped start-of-video speech on some prompts, but may shift visual composition on Ref2VA.",
+                    },
+                ),
             },
         }
 
@@ -588,12 +593,14 @@ class PlatosKeyPatchCLIP:
         strength: float = 1.0,
         key_path_override: str = "",
         apply_to_pooled: bool = False,
+        inject_token0_sink: bool = False,
     ) -> Tuple[Any]:
         key_path = resolve_key_path(key_file, key_path_override)
         key = get_cached_key(key_path)
         te_lora_pairs, te_lora_scale = _load_te_lora_pairs(key_path)
         s_val = float(strength)
         p_val = bool(apply_to_pooled)
+        sink_val = bool(inject_token0_sink)
 
         patched = clip.clone() if hasattr(clip, "clone") else clip
 
@@ -824,7 +831,8 @@ class PlatosKeyPatchCLIP:
                         mapped = _select_forced_seg_cond(mapped)
                     elif use_char_overlap and last_char_ctx[0] and last_char_ctx[1]:
                         mapped = _resample_char_overlap_cond(mapped, last_char_ctx[0], last_char_ctx[1])
-                    mapped = _inject_h3_token0_sink(mapped, key.d_target, strength=s_val)
+                    if sink_val:
+                        mapped = _inject_h3_token0_sink(mapped, key.d_target, strength=s_val)
                     return _ensure_h3_meta(mapped)
                 finally:
                     in_proj[0] = False
@@ -878,6 +886,7 @@ class _HFPlatosKeyCLIP:
         trust_remote_code: bool = True,
         te_lora_pairs: Optional[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = None,
         te_lora_scale: float = 1.0,
+        inject_token0_sink: bool = False,
     ):
         self.model_id = model_id
         self.key = key
@@ -887,6 +896,7 @@ class _HFPlatosKeyCLIP:
         self.trust_remote_code = bool(trust_remote_code)
         self.te_lora_pairs = te_lora_pairs or {}
         self.te_lora_scale = float(te_lora_scale)
+        self.inject_token0_sink = bool(inject_token0_sink)
         self._tok = None
         self._model = None
         self._backbone = None
@@ -901,6 +911,7 @@ class _HFPlatosKeyCLIP:
             trust_remote_code=self.trust_remote_code,
             te_lora_pairs=self.te_lora_pairs,
             te_lora_scale=self.te_lora_scale,
+            inject_token0_sink=self.inject_token0_sink,
         )
         c._tok = self._tok
         c._model = self._model
@@ -977,7 +988,8 @@ class _HFPlatosKeyCLIP:
                         "pooled_output": torch.zeros((1, self.key.d_target), dtype=mapped.dtype),
                         "minimax_token_tags": torch.ones((1, mapped.shape[1]), dtype=torch.long),
                     }
-                    return _inject_h3_token0_sink([[mapped, meta]], self.key.d_target, strength=self.strength)
+                    out_c = [[mapped, meta]]
+                    return _inject_h3_token0_sink(out_c, self.key.d_target, strength=self.strength) if self.inject_token0_sink else out_c
 
             tok_kw = dict(return_tensors="pt", truncation=True, max_length=512, return_special_tokens_mask=True)
             if use_char_ov:
@@ -1013,7 +1025,7 @@ class _HFPlatosKeyCLIP:
                 valid_list = valid.tolist()
                 donor_offs = [(int(s), int(e)) for (s, e), keep in zip(raw_offs, valid_list) if keep]
                 cond_out = _resample_char_overlap_cond(cond_out, text, donor_offs)
-            return _inject_h3_token0_sink(cond_out, self.key.d_target, strength=self.strength)
+            return _inject_h3_token0_sink(cond_out, self.key.d_target, strength=self.strength) if self.inject_token0_sink else cond_out
         finally:
             if self.offload_to_cpu and device.type == "cuda":
                 self._backbone.to("cpu")
@@ -1153,6 +1165,13 @@ class PlatosKeyHFTextEncoderLoader:
                     },
                 ),
                 "key_path_override": ("STRING", {"default": "", "multiline": False}),
+                "inject_token0_sink": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Experimental (OFF by default): Restore Qwen3-VL-32B's Token-0 Attention Sink vector. Can fix clipped start-of-video speech on some prompts, but may shift visual composition on Ref2VA.",
+                    },
+                ),
             },
         }
 
@@ -1170,6 +1189,7 @@ class PlatosKeyHFTextEncoderLoader:
         offload_to_cpu: bool = True,
         hf_repo_id_override: str = "",
         key_path_override: str = "",
+        inject_token0_sink: bool = False,
     ) -> Tuple[Any]:
         resolved_model = resolve_hf_text_encoder(text_encoder, hf_repo_id_override)
         key_path = resolve_key_path(key_file, key_path_override)
@@ -1183,6 +1203,7 @@ class PlatosKeyHFTextEncoderLoader:
             offload_to_cpu=bool(offload_to_cpu),
             te_lora_pairs=te_lora_pairs,
             te_lora_scale=te_lora_scale,
+            inject_token0_sink=bool(inject_token0_sink),
         )
         return (clip,)
 
