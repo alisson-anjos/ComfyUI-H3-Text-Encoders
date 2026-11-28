@@ -53,6 +53,7 @@ def _build_h3_vision_template(
     ref_items: Optional[List[Dict[str, Any]]] = None,
     images: Optional[List[Any]] = None,
     picture_label: str = "<Picture %d>: ",
+    vis_marker: str = "<|vision_start|><|image_pad|><|vision_end|>",
 ) -> Tuple[str, List[Any]]:
     """Convert MiniMax-H3 `minimax_ref_items` or `images` into a VLM `llama_template` + flat `images` list."""
     parts: List[str] = []
@@ -66,7 +67,7 @@ def _build_h3_vision_template(
             itype = item.get("type")
             if itype == "image" and item.get("data") is not None:
                 img_idx += 1
-                parts.append(f"<Picture {img_idx}>: <|vision_start|><|image_pad|><|vision_end|>")
+                parts.append(f"<Picture {img_idx}>: {vis_marker}")
                 vis_imgs.append(item["data"])
             elif itype == "audio":
                 aud_idx += 1
@@ -76,7 +77,7 @@ def _build_h3_vision_template(
             if img is None:
                 continue
             lbl = (picture_label % i) if "%d" in picture_label else f"<Picture {i}>: "
-            parts.append(f"{lbl}<|vision_start|><|image_pad|><|vision_end|>")
+            parts.append(f"{lbl}{vis_marker}")
             vis_imgs.append(img)
     return "".join(parts) + "{}", vis_imgs
 
@@ -750,7 +751,7 @@ class PlatosKeyPatchCLIP:
                 return
             handles = []
             for mod in csm.modules():
-                if hasattr(mod, "visual") and hasattr(mod, "forward"):
+                if (hasattr(mod, "visual") or hasattr(mod, "vision_model")) and hasattr(mod, "forward"):
                     def _pre_hook(_m, _args, _kwargs):
                         ei = _kwargs.get("embeds_info")
                         if isinstance(ei, list) and ei:
@@ -783,28 +784,53 @@ class PlatosKeyPatchCLIP:
 
                 # VLM Vision path (v0.4.0+): if the key bundles `vision_R` and the donor supports `images=[...]`,
                 # route reference/keyframe images directly through the donor's native Vision Tower!
+                # Supports both Qwen3.5/3.8 (`<|vision_start|><|image_pad|><|vision_end|>`) and Gemma 4 (`<|image><|image|><image|>`).
                 if has_ref_visuals and vision_proj is not None:
+                    csm_tok = getattr(patched, "cond_stage_model", None)
+                    is_gemma4_vis = (key.metadata.get("vision_arch") == "gemma4") or (
+                        csm_tok is not None and hasattr(csm_tok, "modules") and any(hasattr(m, "vision_model") for m in csm_tok.modules())
+                    )
+                    vis_marker = "<|image><|image|><image|>" if is_gemma4_vis else "<|vision_start|><|image_pad|><|vision_end|>"
                     pic_lbl = kwargs.get("picture_label", "<Picture %d>: ")
                     vis_tpl, vis_imgs = _build_h3_vision_template(
                         ref_items=ref_items_in if isinstance(ref_items_in, list) else None,
                         images=images_in if isinstance(images_in, list) else None,
                         picture_label=pic_lbl if isinstance(pic_lbl, str) else "<Picture %d>: ",
+                        vis_marker=vis_marker,
                     )
                     if vis_imgs:
+                        saved_vis_attrs = []
+                        vis_has_bos = False
+                        if tok_obj is not None:
+                            ck_v = getattr(tok_obj, "clip", None)
+                            cands_v = [tok_obj]
+                            if isinstance(ck_v, str) and hasattr(tok_obj, ck_v):
+                                cands_v.append(getattr(tok_obj, ck_v))
+                            for c_v in cands_v:
+                                if hasattr(c_v, "min_length") and isinstance(c_v.min_length, int) and c_v.min_length > 1:
+                                    saved_vis_attrs.append((c_v, "min_length", c_v.min_length))
+                                    c_v.min_length = 1
+                                if hasattr(c_v, "start_token") and c_v.start_token is not None:
+                                    vis_has_bos = True
                         try:
                             kw_vis = {
                                 k: v for k, v in kwargs.items()
-                                if k not in ("minimax_ref_items", "images", "picture_label", "llama_template")
+                                if k not in ("minimax_ref_items", "images", "picture_label", "llama_template", "skip_template")
                             }
                             kw_vis["llama_template"] = vis_tpl
                             kw_vis["images"] = vis_imgs
+                            if is_gemma4_vis:
+                                kw_vis["skip_template"] = False
                             res_vis = orig_tok(*args, **kw_vis)
                             last_vision_active[0] = True
                             last_forced_q_last[0] = None
-                            prepended_bos[0] = False
+                            prepended_bos[0] = vis_has_bos
                             return res_vis
                         except TypeError:
                             pass
+                        finally:
+                            for c_v, attr_v, old_v in saved_vis_attrs:
+                                setattr(c_v, attr_v, old_v)
 
                 if has_ref_visuals and not _VISION_WARNED[0]:
                     _VISION_WARNED[0] = True
@@ -958,9 +984,11 @@ class PlatosKeyPatchCLIP:
                             txt_mapped = apply_platos_key(cond_tensor, key, strength=s_val)
                             seq_len = txt_mapped.shape[1]
                             tags = torch.ones(seq_len, dtype=torch.long)
+                            bos_offset = 1 if prepended_bos[0] else 0
                             for e in captured_embeds_info[0]:
                                 if e.get("type") == "image":
-                                    tags[max(0, e["index"] - 1):e["index"] + e["size"] + 1] = 0
+                                    idx_adj = e["index"] - bos_offset
+                                    tags[max(0, idx_adj - 1):idx_adj + e["size"] + 1] = 0
                             vis_mask = (tags == 0)
                             if vis_mask.any():
                                 # Extract exact multi-layer donor hidden states matching key.metadata["donor_layers"]

@@ -226,6 +226,13 @@ class TestPlatosKey(unittest.TestCase):
         )
         self.assertEqual(imgs2, ["KF1", "KF2"])
 
+        tpl_g4, imgs_g4 = nodes_mod._build_h3_vision_template(
+            ref_items=[{"type": "image", "data": "IMG1"}],
+            vis_marker="<|image><|image|><image|>",
+        )
+        self.assertEqual(tpl_g4, "<Picture 1>: <|image><|image|><image|>{}")
+        self.assertEqual(imgs_g4, ["IMG1"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
