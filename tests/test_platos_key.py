@@ -209,6 +209,23 @@ class TestPlatosKey(unittest.TestCase):
         out_zero = nodes_mod._inject_h3_token0_sink(cond_in, d_target=5120, strength=0.0)
         self.assertTrue(torch.allclose(out_zero[0][0], cond))
 
+    def test_h3_vision_template_builder(self) -> None:
+        tpl, imgs = nodes_mod._build_h3_vision_template(
+            ref_items=[{"type": "image", "data": "IMG1"}, {"type": "audio"}, {"type": "image", "data": "IMG2"}]
+        )
+        self.assertEqual(
+            tpl,
+            "<Picture 1>: <|vision_start|><|image_pad|><|vision_end|><Audio 1>: <Picture 2>: <|vision_start|><|image_pad|><|vision_end|>{}",
+        )
+        self.assertEqual(imgs, ["IMG1", "IMG2"])
+
+        tpl2, imgs2 = nodes_mod._build_h3_vision_template(images=["KF1", "KF2"], picture_label="Picture %d: ")
+        self.assertEqual(
+            tpl2,
+            "Picture 1: <|vision_start|><|image_pad|><|vision_end|>Picture 2: <|vision_start|><|image_pad|><|vision_end|>{}",
+        )
+        self.assertEqual(imgs2, ["KF1", "KF2"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

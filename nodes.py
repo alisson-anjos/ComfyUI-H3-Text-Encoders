@@ -18,9 +18,67 @@ except ImportError:
 LOCAL_KEYS_DIR = Path(__file__).resolve().parent / "keys"
 _KEY_CACHE: Dict[Tuple[str, float], PlatosKey] = {}
 _LORA_CACHE: Dict[Tuple[str, float], Tuple[Dict[str, Tuple[torch.Tensor, torch.Tensor]], float]] = {}
+_VISION_CACHE: Dict[Tuple[str, float], Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]] = {}
 _QWEN_TARGET_TOK: List[Any] = [None]
 _H3_TOKEN0_SINK_CACHE: List[Optional[torch.Tensor]] = [None]
 _H3_TOKEN0_SINK_LOADED: List[bool] = [False]
+_VISION_WARNED: List[bool] = [False]
+
+
+def _load_vision_proj(path: Path) -> Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Load optional bundled vision projection (`vision_R`, `vision_donor_mean`, `vision_target_mean`)."""
+    resolved = str(path.resolve())
+    mtime = os.path.getmtime(resolved)
+    ck = (resolved, mtime)
+    if ck in _VISION_CACHE:
+        return _VISION_CACHE[ck]
+
+    from safetensors import safe_open
+    res = None
+    with safe_open(resolved, framework="pt", device="cpu") as sf:
+        ks = set(sf.keys())
+        if {"vision_R", "vision_donor_mean", "vision_target_mean"}.issubset(ks):
+            res = (
+                sf.get_tensor("vision_R"),
+                sf.get_tensor("vision_donor_mean"),
+                sf.get_tensor("vision_target_mean"),
+            )
+    for old_k in [k for k in _VISION_CACHE if k[0] == resolved]:
+        del _VISION_CACHE[old_k]
+    _VISION_CACHE[ck] = res
+    return res
+
+
+def _build_h3_vision_template(
+    ref_items: Optional[List[Dict[str, Any]]] = None,
+    images: Optional[List[Any]] = None,
+    picture_label: str = "<Picture %d>: ",
+) -> Tuple[str, List[Any]]:
+    """Convert MiniMax-H3 `minimax_ref_items` or `images` into a VLM `llama_template` + flat `images` list."""
+    parts: List[str] = []
+    vis_imgs: List[Any] = []
+    if ref_items:
+        img_idx = 0
+        aud_idx = 0
+        for item in ref_items:
+            if not isinstance(item, dict):
+                continue
+            itype = item.get("type")
+            if itype == "image" and item.get("data") is not None:
+                img_idx += 1
+                parts.append(f"<Picture {img_idx}>: <|vision_start|><|image_pad|><|vision_end|>")
+                vis_imgs.append(item["data"])
+            elif itype == "audio":
+                aud_idx += 1
+                parts.append(f"<Audio {aud_idx}>: ")
+    elif images:
+        for i, img in enumerate(images, 1):
+            if img is None:
+                continue
+            lbl = (picture_label % i) if "%d" in picture_label else f"<Picture {i}>: "
+            parts.append(f"{lbl}<|vision_start|><|image_pad|><|vision_end|>")
+            vis_imgs.append(img)
+    return "".join(parts) + "{}", vis_imgs
 
 
 def _get_h3_token0_sink() -> Optional[torch.Tensor]:
@@ -598,6 +656,7 @@ class PlatosKeyPatchCLIP:
         key_path = resolve_key_path(key_file, key_path_override)
         key = get_cached_key(key_path)
         te_lora_pairs, te_lora_scale = _load_te_lora_pairs(key_path)
+        vision_proj = _load_vision_proj(key_path)
         s_val = float(strength)
         p_val = bool(apply_to_pooled)
         sink_val = bool(inject_token0_sink)
@@ -680,6 +739,28 @@ class PlatosKeyPatchCLIP:
         use_forced_seg = (key.metadata.get("alignment") == "forced_qwen_seg")
         last_char_ctx: List[Any] = [None, None]  # [text, donor_offsets]
         last_forced_q_last: List[Optional[List[int]]] = [None]  # 0-based indices after BOS strip
+        last_vision_active: List[bool] = [False]
+        captured_embeds_info: List[List[Dict[str, Any]]] = [[]]
+
+        @contextmanager
+        def _capture_vision_embeds_info(csm):
+            captured_embeds_info[0] = []
+            if not last_vision_active[0] or csm is None or not hasattr(csm, "modules"):
+                yield
+                return
+            handles = []
+            for mod in csm.modules():
+                if hasattr(mod, "visual") and hasattr(mod, "forward"):
+                    def _pre_hook(_m, _args, _kwargs):
+                        ei = _kwargs.get("embeds_info")
+                        if isinstance(ei, list) and ei:
+                            captured_embeds_info[0] = list(ei)
+                    handles.append(mod.register_forward_pre_hook(_pre_hook, with_kwargs=True))
+            try:
+                yield
+            finally:
+                for h in handles:
+                    h.remove()
 
         orig_tok = getattr(patched, "tokenize", None)
         prepended_bos = [False]
@@ -692,6 +773,48 @@ class PlatosKeyPatchCLIP:
                 #      attention sink, matching v3 calibration), then strip token 0 after encoding!
                 tok_obj = getattr(patched, "tokenizer", None)
                 prompt_txt = args[0] if (args and isinstance(args[0], str)) else kwargs.get("text", "")
+                ref_items_in = kwargs.get("minimax_ref_items")
+                images_in = kwargs.get("images")
+                has_ref_visuals = bool(
+                    (isinstance(ref_items_in, list) and any(isinstance(it, dict) and it.get("type") == "image" and it.get("data") is not None for it in ref_items_in))
+                    or (isinstance(images_in, list) and any(im is not None for im in images_in))
+                )
+                last_vision_active[0] = False
+
+                # VLM Vision path (v0.4.0+): if the key bundles `vision_R` and the donor supports `images=[...]`,
+                # route reference/keyframe images directly through the donor's native Vision Tower!
+                if has_ref_visuals and vision_proj is not None:
+                    pic_lbl = kwargs.get("picture_label", "<Picture %d>: ")
+                    vis_tpl, vis_imgs = _build_h3_vision_template(
+                        ref_items=ref_items_in if isinstance(ref_items_in, list) else None,
+                        images=images_in if isinstance(images_in, list) else None,
+                        picture_label=pic_lbl if isinstance(pic_lbl, str) else "<Picture %d>: ",
+                    )
+                    if vis_imgs:
+                        try:
+                            kw_vis = {
+                                k: v for k, v in kwargs.items()
+                                if k not in ("minimax_ref_items", "images", "picture_label", "llama_template")
+                            }
+                            kw_vis["llama_template"] = vis_tpl
+                            kw_vis["images"] = vis_imgs
+                            res_vis = orig_tok(*args, **kw_vis)
+                            last_vision_active[0] = True
+                            last_forced_q_last[0] = None
+                            prepended_bos[0] = False
+                            return res_vis
+                        except TypeError:
+                            pass
+
+                if has_ref_visuals and not _VISION_WARNED[0]:
+                    _VISION_WARNED[0] = True
+                    print(
+                        "[Plato's Key] WARNING: This key/encoder is text-only — VLM vision tokens from "
+                        "`minimax_ref_items`/`images` are skipped (Video VAE reference latents & keyframes "
+                        "still work in the DiT, but multi-ref/RefPacks identity benefits from a vision-enabled "
+                        "key such as Qwen 3.5 pk_lora v0.4.0+ or native Qwen3-VL-32B)."
+                    )
+
                 if use_char_overlap:
                     if isinstance(prompt_txt, str) and prompt_txt:
                         last_char_ctx[0] = prompt_txt
@@ -823,14 +946,48 @@ class PlatosKeyPatchCLIP:
                 in_proj[0] = True
                 try:
                     csm = getattr(patched, "cond_stage_model", None)
-                    with _override_extraction(), _apply_te_lora_hooks(csm, te_lora_pairs, te_lora_scale):
+                    with _override_extraction(), _apply_te_lora_hooks(csm, te_lora_pairs, te_lora_scale), _capture_vision_embeds_info(csm):
                         cond = orig_sched(*args, **kwargs)
                     cond = _strip_bos_cond(cond)
-                    mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
-                    if use_forced_seg and last_forced_q_last[0]:
-                        mapped = _select_forced_seg_cond(mapped)
-                    elif use_char_overlap and last_char_ctx[0] and last_char_ctx[1]:
-                        mapped = _resample_char_overlap_cond(mapped, last_char_ctx[0], last_char_ctx[1])
+                    if last_vision_active[0] and vision_proj is not None and captured_embeds_info[0]:
+                        v_R, v_dm, v_tm = vision_proj
+                        mapped = []
+                        for cond_tensor, cond_dict in cond:
+                            new_dict = dict(cond_dict) if isinstance(cond_dict, dict) else {}
+                            # Project text tokens with W_text (`apply_platos_key`)
+                            txt_mapped = apply_platos_key(cond_tensor, key, strength=s_val)
+                            seq_len = txt_mapped.shape[1]
+                            tags = torch.ones(seq_len, dtype=torch.long)
+                            for e in captured_embeds_info[0]:
+                                if e.get("type") == "image":
+                                    tags[max(0, e["index"] - 1):e["index"] + e["size"] + 1] = 0
+                            vis_mask = (tags == 0)
+                            if vis_mask.any():
+                                # Extract exact multi-layer donor hidden states matching key.metadata["donor_layers"]
+                                h_raw = cond_tensor
+                                layers_meta = key.metadata.get("donor_layers")
+                                if h_raw.ndim == 4 and layers_meta:
+                                    import json as _json
+                                    l_idx = [int(v) for v in _json.loads(layers_meta)]
+                                    h_flat = torch.cat([h_raw[:, li] for li in l_idx], dim=-1)
+                                else:
+                                    h_flat = h_raw
+                                if h_flat.shape[-1] == v_R.shape[0]:
+                                    hv = h_flat[:, vis_mask, :].float()
+                                    v_dm_d = v_dm.to(device=hv.device, dtype=torch.float32)
+                                    v_R_d = v_R.to(device=hv.device, dtype=torch.float32)
+                                    v_tm_d = v_tm.to(device=hv.device, dtype=torch.float32)
+                                    vis_out = ((hv - v_dm_d) @ v_R_d) * s_val + v_tm_d
+                                    txt_mapped = txt_mapped.clone()
+                                    txt_mapped[:, vis_mask, :] = vis_out.to(dtype=txt_mapped.dtype, device=txt_mapped.device)
+                            new_dict["minimax_token_tags"] = tags.unsqueeze(0)
+                            mapped.append([txt_mapped, new_dict])
+                    else:
+                        mapped = _transform_conditioning(cond, key=key, strength=s_val, apply_to_pooled=p_val)
+                        if use_forced_seg and last_forced_q_last[0]:
+                            mapped = _select_forced_seg_cond(mapped)
+                        elif use_char_overlap and last_char_ctx[0] and last_char_ctx[1]:
+                            mapped = _resample_char_overlap_cond(mapped, last_char_ctx[0], last_char_ctx[1])
                     if sink_val:
                         mapped = _inject_h3_token0_sink(mapped, key.d_target, strength=s_val)
                     return _ensure_h3_meta(mapped)
